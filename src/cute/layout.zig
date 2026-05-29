@@ -109,7 +109,7 @@ pub fn Layout(comptime Shape: type, comptime Stride: type) type {
     };
 }
 
-pub inline fn wrap_static_ints(val: anytype) @TypeOf(blk: {
+pub fn wrap_static_ints(val: anytype) @TypeOf(blk: {
     @setEvalBranchQuota(10_000);
     const T = @TypeOf(val);
     if (T == comptime_int) {
@@ -1630,7 +1630,7 @@ inline fn slice_value(coord: anytype, value: anytype) SliceValueType(@TypeOf(coo
     @setEvalBranchQuota(100_000);
     const CoordT = @TypeOf(coord);
     if (comptime int_tuple.is_tuple(CoordT)) {
-        comptime var result: SliceValueType(CoordT, @TypeOf(value)) = undefined;
+        var result: SliceValueType(CoordT, @TypeOf(value)) = undefined;
         comptime var out_i = 0;
         inline for (0..comptime int_tuple.rank(CoordT)) |i| {
             if (comptime slice_rank(child_type(CoordT, i)) > 0) {
@@ -1682,7 +1682,7 @@ inline fn dice_value(coord: anytype, value: anytype) DiceValueType(@TypeOf(coord
     @setEvalBranchQuota(100_000);
     const CoordT = @TypeOf(coord);
     if (comptime int_tuple.is_tuple(CoordT)) {
-        comptime var result: DiceValueType(CoordT, @TypeOf(value)) = undefined;
+        var result: DiceValueType(CoordT, @TypeOf(value)) = undefined;
         comptime var out_i = 0;
         inline for (0..comptime int_tuple.rank(CoordT)) |i| {
             if (comptime dice_rank(child_type(CoordT, i)) > 0) {
