@@ -23,10 +23,13 @@ pub const tma_sm90 = struct {
     /// Prefetch TMA descriptor into L2 cache.
     pub inline fn prefetch_tma_descriptor(desc_ptr: *const TmaDescriptor) void {
         const ptr = @intFromPtr(desc_ptr);
-        asm volatile ("cp.async.bulk.prefetch.L2.global [%[p]], 128;" : : [p] "l" (ptr) : "memory");
+        asm volatile ("cp.async.bulk.prefetch.L2.global [%[p]], 128;"
+            :
+            : [p] "l" (ptr),
+            : .{ .memory = true });
     }
 
     pub inline fn fence_view_async() void {
-        asm volatile ("fence.view.async.shared::cluster;" ::: "memory");
+        asm volatile ("fence.view.async.shared::cluster;" ::: .{ .memory = true });
     }
 };

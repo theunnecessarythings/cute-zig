@@ -15,7 +15,7 @@ pub const SM80_16x8x16_F16F16F16F16_TN = . {
     .shape_mnk = .{16,8,16},
     .layout_a = layout_mod.make_layout(.{.{4,8},.{2,2,2}},.{.{32,1},.{16,8,128}}),
     .layout_b = layout_mod.make_layout(.{.{4,8},.{2,2}},.{.{16,1},.{8,64}}),
-    .layout_c = layout_mod.make_layout(.{1,1},.{0,0}),
+    .layout_c = layout_mod.make_layout(.{.{4,8},.{2,2}},.{.{16,1},.{8,64}}),
 };
 
 pub const SM80_16x8x4_F32TF32TF32F32_TN = . {

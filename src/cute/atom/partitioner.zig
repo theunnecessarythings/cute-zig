@@ -6,12 +6,7 @@ const underscore = @import("../underscore.zig");
 /// Core partitioning logic for Atoms.
 /// Applies a TV-Layout (tid, vid) -> (coord) to a global Tensor.
 
-pub fn partition(tensor: anytype, tv_layout: anytype, thread_id: usize) @TypeOf(blk: {
-    const u = underscore._;
-    const v_layout = tv_layout.slice(.{ thread_id, u });
-    const local_layout = layout_mod.composition(tensor.layout, v_layout);
-    break :blk tensor_mod.make_tensor(tensor.ptr, local_layout);
-}) {
+pub inline fn partition(tensor: anytype, tv_layout: anytype, thread_id: usize) tensor_mod.Tensor(@TypeOf(tensor.ptr), @TypeOf(layout_mod.composition(tensor.layout, tv_layout.slice(.{ thread_id, underscore._ })))) {
     // 1. Slice the TV-layout for the specific thread_id
     // This gives a layout: (vid) -> (coord)
     const u = underscore._;

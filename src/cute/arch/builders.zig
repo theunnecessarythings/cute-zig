@@ -30,19 +30,16 @@ pub fn Mma(comptime inst: types.MmaInst) type {
         pub const CRegisters = [inst.c_regs.count]inst.c_regs.ty;
 
         pub inline fn fma(d: *DRegisters, a: ARegisters, b: BRegisters, c: CRegisters) void {
-            comptime {
-                const func_name = std.fmt.comptimePrint("mma_{s}{d}_{s}{d}_{s}{d}_{s}{d}", .{
-                    typeName(inst.d_regs.ty), inst.d_regs.count,
-                    typeName(inst.a_regs.ty), inst.a_regs.count,
-                    typeName(inst.b_regs.ty), inst.b_regs.count,
-                    typeName(inst.c_regs.ty), inst.c_regs.count,
-                });
-                if (@hasDecl(dispatch, func_name)) {
-                    @field(dispatch, func_name)(inst.ptx, d, a, b, c);
-                } else {
-                    @compileError("Universal Dispatcher missing signature for " ++ inst.name ++ " (looked for " ++ func_name ++ ")");
-                }
-            }
+            const func_name = comptime std.fmt.comptimePrint("mma_{s}{d}_{s}{d}_{s}{d}_{s}{d}", .{
+                typeName(inst.d_regs.ty), inst.d_regs.count,
+                typeName(inst.a_regs.ty), inst.a_regs.count,
+                typeName(inst.b_regs.ty), inst.b_regs.count,
+                typeName(inst.c_regs.ty), inst.c_regs.count,
+            });
+            comptime if (!@hasDecl(dispatch, func_name)) {
+                @compileError("Universal Dispatcher missing signature for " ++ inst.name ++ " (looked for " ++ func_name ++ ")");
+            };
+            @field(dispatch, func_name)(inst.ptx, d, a, b, c);
         }
     };
 }
@@ -53,17 +50,14 @@ pub fn Copy(comptime inst: types.CopyInst) type {
         pub const DRegisters = [inst.d_regs.count]inst.d_regs.ty;
 
         pub inline fn copy(src: SRegisters, dst: *DRegisters, pred: bool) void {
-            comptime {
-                const func_name = std.fmt.comptimePrint("copy_{s}{d}_{s}{d}", .{
-                    typeName(inst.s_regs.ty), inst.s_regs.count,
-                    typeName(inst.d_regs.ty), inst.d_regs.count,
-                });
-                if (@hasDecl(dispatch, func_name)) {
-                    @field(dispatch, func_name)(inst.ptx, src, dst, pred);
-                } else {
-                    @compileError("Universal Dispatcher missing signature for " ++ inst.name ++ " (looked for " ++ func_name ++ ")");
-                }
-            }
+            const func_name = comptime std.fmt.comptimePrint("copy_{s}{d}_{s}{d}", .{
+                typeName(inst.s_regs.ty), inst.s_regs.count,
+                typeName(inst.d_regs.ty), inst.d_regs.count,
+            });
+            comptime if (!@hasDecl(dispatch, func_name)) {
+                @compileError("Universal Dispatcher missing signature for " ++ inst.name ++ " (looked for " ++ func_name ++ ")");
+            };
+            @field(dispatch, func_name)(inst.ptx, src, dst, pred);
         }
     };
 }

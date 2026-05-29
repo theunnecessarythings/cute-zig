@@ -10,11 +10,15 @@ pub fn SliceResultType(comptime LayoutT: type, comptime CoordT: type) type {
     // We can't easily instantiate them here if they are complex, 
     // but we can use their types with 'undefined' if they are structs.
     // A better way is to use a helper that only operates on types.
-    const result_shape_type = @TypeOf(slice_value(@as(CoordT, undefined), @as(ShapeT, undefined)));
-    const result_stride_type = @TypeOf(slice_value(@as(CoordT, undefined), @as(StrideT, undefined)));
+    const result_shape_type = @TypeOf(wrap_static_ints(slice_value(@as(CoordT, undefined), @as(ShapeT, undefined))));
+    const result_stride_type = @TypeOf(wrap_static_ints(slice_value(@as(CoordT, undefined), @as(StrideT, undefined))));
     
     const NewLayoutT = Layout(result_shape_type, result_stride_type);
-    return struct { layout: NewLayoutT, offset: usize };
+    return struct { 
+        pub const LayoutType = NewLayoutT;
+        layout: NewLayoutT, 
+        offset: usize 
+    };
 }
 
 pub fn Layout(comptime Shape: type, comptime Stride: type) type {
@@ -88,25 +92,60 @@ pub fn Layout(comptime Shape: type, comptime Stride: type) type {
             }
         }
 
-        pub fn slice_and_offset(self: Self, coord: anytype) SliceResultType(Self, @TypeOf(coord)) {
+        pub inline fn slice_and_offset(self: Self, coord: anytype) SliceResultType(Self, @TypeOf(coord)) {
             return .{
                 .layout = make_layout(slice_value(coord, self.shape), slice_value(coord, self.stride)),
                 .offset = slice_offset(coord, self.shape, self.stride),
             };
         }
 
-        pub fn slice(self: Self, coord: anytype) @TypeOf(self.slice_and_offset(coord).layout) {
-            return self.slice_and_offset(coord).layout;
+        pub inline fn slice(self: Self, coord: anytype) SliceResultType(Self, @TypeOf(coord)).LayoutType {
+            return make_layout(slice_value(coord, self.shape), slice_value(coord, self.stride));
         }
 
-        pub fn dice(self: Self, coord: anytype) @TypeOf(make_layout(dice_value(coord, self.shape), dice_value(coord, self.stride))) {
+        pub inline fn dice(self: Self, coord: anytype) @TypeOf(make_layout(dice_value(coord, self.shape), dice_value(coord, self.stride))) {
             return make_layout(dice_value(coord, self.shape), dice_value(coord, self.stride));
         }
     };
 }
 
-pub fn make_layout(shp: anytype, strd: anytype) Layout(@TypeOf(shp), @TypeOf(strd)) {
-    return Layout(@TypeOf(shp), @TypeOf(strd)).init(shp, strd);
+pub inline fn wrap_static_ints(val: anytype) @TypeOf(blk: {
+    @setEvalBranchQuota(10_000);
+    const T = @TypeOf(val);
+    if (T == comptime_int) {
+        break :blk numeric.c(val);
+    } else if (comptime int_tuple.is_tuple(T)) {
+        const R = comptime int_tuple.rank(T);
+        if (R == 0) break :blk .{};
+        if (R == 1) break :blk .{wrap_static_ints(val[0])};
+        if (R == 2) break :blk .{wrap_static_ints(val[0]), wrap_static_ints(val[1])};
+        if (R == 3) break :blk .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2])};
+        if (R == 4) break :blk .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]), wrap_static_ints(val[3])};
+        @compileError("wrap_static_ints supports rank up to 4");
+    } else {
+        break :blk val;
+    }
+}) {
+    const T = @TypeOf(val);
+    if (T == comptime_int) {
+        return numeric.c(val);
+    } else if (comptime int_tuple.is_tuple(T)) {
+        const R = comptime int_tuple.rank(T);
+        if (R == 0) return .{};
+        if (R == 1) return .{wrap_static_ints(val[0])};
+        if (R == 2) return .{wrap_static_ints(val[0]), wrap_static_ints(val[1])};
+        if (R == 3) return .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2])};
+        if (R == 4) return .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]), wrap_static_ints(val[3])};
+        @compileError("wrap_static_ints supports rank up to 4");
+    } else {
+        return val;
+    }
+}
+
+pub fn make_layout(shp: anytype, strd: anytype) Layout(@TypeOf(wrap_static_ints(shp)), @TypeOf(wrap_static_ints(strd))) {
+    const wrapped_shp = wrap_static_ints(shp);
+    const wrapped_strd = wrap_static_ints(strd);
+    return Layout(@TypeOf(wrapped_shp), @TypeOf(wrapped_strd)).init(wrapped_shp, wrapped_strd);
 }
 
 pub fn make_layout_left(shp: anytype) @TypeOf(make_layout(shp, make_compact_col_major_stride(shp))) {
@@ -1587,10 +1626,11 @@ fn child_type(comptime T: type, comptime i: usize) type {
     };
 }
 
-fn slice_value(coord: anytype, value: anytype) SliceValueType(@TypeOf(coord), @TypeOf(value)) {
+inline fn slice_value(coord: anytype, value: anytype) SliceValueType(@TypeOf(coord), @TypeOf(value)) {
+    @setEvalBranchQuota(100_000);
     const CoordT = @TypeOf(coord);
     if (comptime int_tuple.is_tuple(CoordT)) {
-        var result: SliceValueType(CoordT, @TypeOf(value)) = undefined;
+        comptime var result: SliceValueType(CoordT, @TypeOf(value)) = undefined;
         comptime var out_i = 0;
         inline for (0..comptime int_tuple.rank(CoordT)) |i| {
             if (comptime slice_rank(child_type(CoordT, i)) > 0) {
@@ -1607,6 +1647,7 @@ fn slice_value(coord: anytype, value: anytype) SliceValueType(@TypeOf(coord), @T
 }
 
 fn SliceValueType(comptime CoordT: type, comptime ValueT: type) type {
+    @setEvalBranchQuota(100_000);
     if (comptime int_tuple.is_tuple(CoordT)) {
         const R = slice_rank(CoordT);
         comptime var fields: [R]type = undefined;
@@ -1626,6 +1667,7 @@ fn SliceValueType(comptime CoordT: type, comptime ValueT: type) type {
 }
 
 fn slice_rank(comptime CoordT: type) usize {
+    @setEvalBranchQuota(10_000);
     if (comptime int_tuple.is_tuple(CoordT)) {
         comptime var total = 0;
         inline for (0..comptime int_tuple.rank(CoordT)) |i| {
@@ -1636,10 +1678,11 @@ fn slice_rank(comptime CoordT: type) usize {
     return if (comptime underscore.is_underscore(CoordT)) 1 else 0;
 }
 
-fn dice_value(coord: anytype, value: anytype) DiceValueType(@TypeOf(coord), @TypeOf(value)) {
+inline fn dice_value(coord: anytype, value: anytype) DiceValueType(@TypeOf(coord), @TypeOf(value)) {
+    @setEvalBranchQuota(100_000);
     const CoordT = @TypeOf(coord);
     if (comptime int_tuple.is_tuple(CoordT)) {
-        var result: DiceValueType(CoordT, @TypeOf(value)) = undefined;
+        comptime var result: DiceValueType(CoordT, @TypeOf(value)) = undefined;
         comptime var out_i = 0;
         inline for (0..comptime int_tuple.rank(CoordT)) |i| {
             if (comptime dice_rank(child_type(CoordT, i)) > 0) {
@@ -1656,6 +1699,7 @@ fn dice_value(coord: anytype, value: anytype) DiceValueType(@TypeOf(coord), @Typ
 }
 
 fn DiceValueType(comptime CoordT: type, comptime ValueT: type) type {
+    @setEvalBranchQuota(100_000);
     if (comptime int_tuple.is_tuple(CoordT)) {
         const R = dice_rank(CoordT);
         comptime var fields: [R]type = undefined;
@@ -1675,6 +1719,7 @@ fn DiceValueType(comptime CoordT: type, comptime ValueT: type) type {
 }
 
 fn dice_rank(comptime CoordT: type) usize {
+    @setEvalBranchQuota(10_000);
     if (comptime int_tuple.is_tuple(CoordT)) {
         comptime var total = 0;
         inline for (0..comptime int_tuple.rank(CoordT)) |i| {
@@ -1726,12 +1771,12 @@ fn coord_value_type(comptime CoordT: type, comptime LeafT: type) type {
 }
 
 /// Create a 1D layout (N) -> (1)
-pub fn make_layout_1d(n: anytype) Layout(@TypeOf(n), isize) {
+pub fn make_layout_1d(n: anytype) @TypeOf(make_layout(n, @as(isize, 1))) {
     return make_layout(n, @as(isize, 1));
 }
 
 /// Create a Column-Major layout (M, N) -> (1, M)
-pub fn make_layout_col_major(m: anytype, n: anytype) Layout(@TypeOf(.{ m, n }), @TypeOf(.{ @as(isize, 1), @as(isize, m) })) {
+pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout(.{ m, n }, .{ @as(isize, 1), @as(isize, m) })) {
     const shp = .{ m, n };
     const strd = .{ @as(isize, 1), @as(isize, m) };
     return make_layout(shp, strd);

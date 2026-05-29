@@ -15,6 +15,9 @@ pub const WgmmaDescriptor = struct {
 pub const wgmma_sm90 = struct {
     pub inline fn fence_mbarrier_init(mbar_ptr: [*]addrspace(.shared) u64) void {
         const mbar = @as(u32, @intCast(@intFromPtr(mbar_ptr)));
-        asm volatile ("fence.mbarrier.init.shared::cta.b64 [%[mbar]];" : : [mbar] "r" (mbar) : "memory");
+        asm volatile ("fence.mbarrier.init.shared::cta.b64 [%[mbar]];"
+            :
+            : [mbar] "r" (mbar),
+            : .{ .memory = true });
     }
 };

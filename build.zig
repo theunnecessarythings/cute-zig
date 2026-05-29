@@ -3,15 +3,14 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const cutlass_root = b.option([]const u8, "cutlass-root", "Path to the CUTLASS checkout used for CuTe parity fixtures") orelse "/home/sreeraj/Documents/cutlass";
-    const cuda_include = b.option([]const u8, "cuda-include", "Path to CUDA headers used for CuTe C++ parity fixtures") orelse "/opt/cuda/include";
-    const cccl_include = b.option([]const u8, "cccl-include", "Path to CCCL/libcudacxx headers used for CuTe C++ parity fixtures") orelse "/opt/cuda/targets/x86_64-linux/include/cccl";
+    const cutlass_root = b.option([]const u8, "cutlass-root", "Path to the CUTLASS checkout used for CuTe parity fixtures") orelse "../cutlass";
+    const cuda_root = b.option([]const u8, "cuda-root", "Path to the CUDA toolkit target root") orelse "/apps/software/system/software/CUDA/12.8.0/targets/x86_64-linux";
+    const cuda_include = b.option([]const u8, "cuda-include", "Path to CUDA headers used for CuTe C++ parity fixtures") orelse b.pathJoin(&.{ cuda_root, "include" });
+    const cccl_include = b.option([]const u8, "cccl-include", "Path to CCCL/libcudacxx headers used for CuTe C++ parity fixtures") orelse b.pathJoin(&.{ cuda_root, "include" });
 
     // CuTe-Zig Library Module
     const cute_mod = b.addModule("cute", .{
         .root_source_file = b.path("src/cute/root.zig"),
-        .target = target,
-        .optimize = optimize,
     });
 
     // Host tests/examples
@@ -27,9 +26,12 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("cute", cute_mod);
     
     // CUDA Setup (based on starter)
-    exe.root_module.addIncludePath(.{ .cwd_relative = "/opt/cuda/include" });
-    exe.root_module.addLibraryPath(.{ .cwd_relative = "/opt/cuda/lib64" });
+    exe.root_module.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ cuda_root, "include" }) });
+    exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib64" });
+    exe.root_module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ cuda_root, "lib", "stubs" }) });
+    exe.addRPath(.{ .cwd_relative = "/usr/lib64" });
     exe.root_module.linkSystemLibrary("cuda", .{});
+    exe.root_module.addCSourceFile(.{ .file = b.path("src/glibc_csu_compat.c") });
     
     b.installArtifact(exe);
 
@@ -50,19 +52,55 @@ pub fn build(b: *std.Build) void {
     });
     device_code.root_module.addImport("cute", cute_mod);
 
+    const cuda_mod = b.addModule("cuda", .{
+        .root_source_file = b.path("src/cuda.zig"),
+    });
+
+    // SGEMM Example Host Driver
+    const sgemm_exe = b.addExecutable(.{
+        .name = "sgemm-host",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/sgemm_host.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    sgemm_exe.root_module.addImport("cuda", cuda_mod);
+    sgemm_exe.root_module.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ cuda_root, "include" }) });
+    sgemm_exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib64" });
+    sgemm_exe.root_module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ cuda_root, "lib", "stubs" }) });
+    sgemm_exe.addRPath(.{ .cwd_relative = "/usr/lib64" });
+    sgemm_exe.root_module.linkSystemLibrary("cuda", .{});
+    sgemm_exe.root_module.addCSourceFile(.{ .file = b.path("src/glibc_csu_compat.c") });
+
     // SGEMM Example Kernel
-    const sgemm_kernel = b.addObject(.{
+    const sgemm_kernel = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = "sgemm-sm80",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/sgemm_sm80.zig"),
+            .root_source_file = b.path("examples/main_device.zig"),
             .target = nvptx_target,
             .optimize = .ReleaseFast,
         }),
     });
+    sgemm_kernel.linker_allow_shlib_undefined = false;
+    sgemm_kernel.bundle_compiler_rt = false;
     sgemm_kernel.root_module.addImport("cute", cute_mod);
-    const sgemm_step = b.step("example-sgemm", "Compile the SGEMM SM80 example kernel to PTX");
-    sgemm_step.dependOn(&sgemm_kernel.step);
-    _ = sgemm_kernel.getEmittedAsm();
+    const raw_asm = sgemm_kernel.getEmittedAsm();
+
+    const clean_ptx = b.addSystemCommand(&.{ "python3", "tools/clean_ptx.py" });
+    clean_ptx.addFileArg(raw_asm);
+    const sgemm_asm = clean_ptx.addOutputFileArg("sgemm-sm80.s");
+
+    sgemm_exe.root_module.addAnonymousImport("cuda-module", .{
+        .root_source_file = sgemm_asm,
+    });
+
+    b.installArtifact(sgemm_exe);
+    const run_sgemm = b.addRunArtifact(sgemm_exe);
+    const sgemm_step = b.step("run-sgemm", "Run the SGEMM SM80 example on GPU");
+    sgemm_step.dependOn(&run_sgemm.step);
 
     const nvptx_module = device_code.getEmittedAsm();
     exe.root_module.addAnonymousImport("cuda-module", .{

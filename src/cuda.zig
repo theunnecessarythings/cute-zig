@@ -48,6 +48,7 @@ pub const c = struct {
 };
 
 pub fn unexpected(err: c_uint) noreturn {
+    std.debug.print("CUDA Error: {}\n", .{err});
     var msg: [*:0]const u8 = undefined;
     switch (c.cuGetErrorName(err, &msg)) {
         c.CUDA_SUCCESS => {},

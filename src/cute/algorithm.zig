@@ -3,8 +3,14 @@ const std = @import("std");
 /// Fill a tensor with a specific value using layout-aware logical 1D iteration.
 pub fn fill(tensor: anytype, value: anytype) void {
     const sz = tensor.size();
-    for (0..sz) |i| {
-        tensor.set_1d(i, value);
+    if (comptime @TypeOf(sz) == comptime_int or @import("numeric.zig").is_static_int(@TypeOf(sz))) {
+        inline for (0..sz) |i| {
+            tensor.set_1d(i, value);
+        }
+    } else {
+        for (0..sz) |i| {
+            tensor.set_1d(i, value);
+        }
     }
 }
 
@@ -15,8 +21,14 @@ pub fn copy(src: anytype, dst: anytype) void {
         @panic("Tensor size mismatch in copy algorithm.");
     }
     const sz = src.size();
-    for (0..sz) |i| {
-        dst.set_1d(i, src.get_1d(i));
+    if (comptime @TypeOf(sz) == comptime_int or @import("numeric.zig").is_static_int(@TypeOf(sz))) {
+        inline for (0..sz) |i| {
+            dst.set_1d(i, src.get_1d(i));
+        }
+    } else {
+        for (0..sz) |i| {
+            dst.set_1d(i, src.get_1d(i));
+        }
     }
 }
 

@@ -4,14 +4,17 @@ const int_tuple = @import("int_tuple.zig");
 const underscore = @import("underscore.zig");
 
 /// A Tensor is fundamentally a multidimensional array, defined by a 1D pointer and a Layout.
-pub fn Tensor(comptime T: type, comptime LayoutType: type) type {
+pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
+    const ptr_info = @typeInfo(PtrType);
+    const T = ptr_info.pointer.child;
+
     return struct {
-        ptr: [*]T,
+        ptr: PtrType,
         layout: LayoutType,
 
         const Self = @This();
 
-        pub fn init(ptr: [*]T, l: LayoutType) Self {
+        pub fn init(ptr: PtrType, l: LayoutType) Self {
             return .{ .ptr = ptr, .layout = l };
         }
 
@@ -21,7 +24,7 @@ pub fn Tensor(comptime T: type, comptime LayoutType: type) type {
         }
 
         /// Get a pointer to the element at the given coordinate.
-        pub fn ptr_at(self: Self, coord: anytype) [*]T {
+        pub fn ptr_at(self: Self, coord: anytype) PtrType {
             return self.ptr + self.map(coord);
         }
 
@@ -71,8 +74,8 @@ pub fn Tensor(comptime T: type, comptime LayoutType: type) type {
 }
 
 /// Helper to create a Tensor from a pointer and a layout.
-pub fn make_tensor(ptr: anytype, l: anytype) Tensor(std.meta.Child(@TypeOf(ptr)), @TypeOf(l)) {
-    return Tensor(std.meta.Child(@TypeOf(ptr)), @TypeOf(l)).init(ptr, l);
+pub fn make_tensor(ptr: anytype, l: anytype) Tensor(@TypeOf(ptr), @TypeOf(l)) {
+    return Tensor(@TypeOf(ptr), @TypeOf(l)).init(ptr, l);
 }
 
 /// Print a tensor's logical data to stderr.

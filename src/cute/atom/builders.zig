@@ -8,17 +8,17 @@ pub fn MmaAtom(comptime inst: anytype, comptime traits: anytype) type {
         pub const Traits = traits;
         pub const Op = inst;
 
-        pub fn partition_A(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_a, thread_id)) {
+        pub inline fn partition_A(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_a, thread_id)) {
             _ = self;
             return partitioner.partition(tensor, Traits.layout_a, thread_id);
         }
 
-        pub fn partition_B(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_b, thread_id)) {
+        pub inline fn partition_B(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_b, thread_id)) {
             _ = self;
             return partitioner.partition(tensor, Traits.layout_b, thread_id);
         }
 
-        pub fn partition_C(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_c, thread_id)) {
+        pub inline fn partition_C(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_c, thread_id)) {
             _ = self;
             return partitioner.partition(tensor, Traits.layout_c, thread_id);
         }
@@ -45,15 +45,15 @@ pub fn ThrMMA(comptime Atom: anytype) type {
         const AtomT = Atom;
         thread_id: usize,
 
-        pub fn partition_A(self: Self, tensor: anytype) @TypeOf(AtomT.partition_A(.{}, tensor, self.thread_id)) {
+        pub inline fn partition_A(self: Self, tensor: anytype) @TypeOf(AtomT.partition_A(.{}, tensor, self.thread_id)) {
             return AtomT.partition_A(.{}, tensor, self.thread_id);
         }
 
-        pub fn partition_B(self: Self, tensor: anytype) @TypeOf(AtomT.partition_B(.{}, tensor, self.thread_id)) {
+        pub inline fn partition_B(self: Self, tensor: anytype) @TypeOf(AtomT.partition_B(.{}, tensor, self.thread_id)) {
             return AtomT.partition_B(.{}, tensor, self.thread_id);
         }
 
-        pub fn partition_C(self: Self, tensor: anytype) @TypeOf(AtomT.partition_C(.{}, tensor, self.thread_id)) {
+        pub inline fn partition_C(self: Self, tensor: anytype) @TypeOf(AtomT.partition_C(.{}, tensor, self.thread_id)) {
             return AtomT.partition_C(.{}, tensor, self.thread_id);
         }
 
@@ -83,12 +83,12 @@ pub fn CopyAtom(comptime inst: anytype, comptime traits: anytype) type {
         pub const Traits = traits;
         pub const Op = inst;
 
-        pub fn partition_S(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_src, thread_id)) {
+        pub inline fn partition_S(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_src, thread_id)) {
             _ = self;
             return partitioner.partition(tensor, Traits.layout_src, thread_id);
         }
 
-        pub fn partition_D(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_dst, thread_id)) {
+        pub inline fn partition_D(self: Self, tensor: anytype, thread_id: usize) @TypeOf(partitioner.partition(tensor, Traits.layout_dst, thread_id)) {
             _ = self;
             return partitioner.partition(tensor, Traits.layout_dst, thread_id);
         }
@@ -122,11 +122,11 @@ pub fn ThrCopy(comptime Atom: anytype) type {
         const AtomT = Atom;
         thread_id: usize,
 
-        pub fn partition_S(self: Self, tensor: anytype) @TypeOf(AtomT.partition_S(.{}, tensor, self.thread_id)) {
+        pub inline fn partition_S(self: Self, tensor: anytype) @TypeOf(AtomT.partition_S(.{}, tensor, self.thread_id)) {
             return AtomT.partition_S(.{}, tensor, self.thread_id);
         }
 
-        pub fn partition_D(self: Self, tensor: anytype) @TypeOf(AtomT.partition_D(.{}, tensor, self.thread_id)) {
+        pub inline fn partition_D(self: Self, tensor: anytype) @TypeOf(AtomT.partition_D(.{}, tensor, self.thread_id)) {
             return AtomT.partition_D(.{}, tensor, self.thread_id);
         }
 
