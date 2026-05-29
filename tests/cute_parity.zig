@@ -636,10 +636,10 @@ test "tensor and algorithm parity baseline" {
     const sw = cute.swizzle.Swizzle(2, 3, 3){};
     const swizzle_layout = cute.swizzle.composition(sw, col_major);
     const swizzle_tensor = cute.tensor.make_tensor(@as([*]f32, &src_data), swizzle_layout);
-    
+
     const u = cute.underscore._;
     const swizzle_slice = swizzle_tensor.slice(.{ u, @as(usize, 2) });
-    
+
     // In C++, swizzle_slice(0) is logical index 0 of column 2.
     // In original tensor, that's logical coord (0, 2) -> physical offset 0 + 2*4 = 8.
     // Swizzle(2, 3, 3) applied to 8:
@@ -650,4 +650,40 @@ test "tensor and algorithm parity baseline" {
     // 8 & 192 = 0. 0 >> 3 = 0. 8 ^ 0 = 8.
     // So swizzle_slice(0) should be src_data[8] = 8.0.
     try std.testing.expectEqual(@as(f32, 8.0), swizzle_slice.get_1d(0));
+}
+
+test "swizzled tensor slicing preserves xor base offset" {
+    const col_major = cute.layout.make_layout(
+        .{ @as(usize, 16), @as(usize, 8) },
+        .{ @as(isize, 1), @as(isize, 16) },
+    );
+    const sw = cute.swizzle.Swizzle(2, 3, 3){};
+    const swizzle_layout = cute.swizzle.composition(sw, col_major);
+
+    var data: [128]f32 = undefined;
+    for (0..128) |i| data[i] = @as(f32, @floatFromInt(i));
+
+    const tensor = cute.tensor.make_tensor(@as([*]f32, &data), swizzle_layout);
+    const u = cute.underscore._;
+    const slice = tensor.slice(.{ u, @as(usize, 4) });
+
+    try std.testing.expectEqual(@as(f32, 72.0), slice.get_1d(0));
+    try std.testing.expectEqual(@as(f32, 73.0), slice.get_1d(1));
+}
+
+test "tensor reshape uses compact layout with matching size" {
+    const row_major = cute.layout.make_layout(
+        .{ @as(usize, 2), @as(usize, 3) },
+        .{ @as(isize, 3), @as(isize, 1) },
+    );
+
+    var data: [6]f32 = undefined;
+    for (0..6) |i| data[i] = @as(f32, @floatFromInt(i));
+
+    const tensor = cute.tensor.make_tensor(@as([*]f32, &data), row_major);
+    const reshaped = tensor.reshape(.{ @as(usize, 3), @as(usize, 2) });
+
+    try std.testing.expectEqual(@as(usize, 6), reshaped.size());
+    try std.testing.expectEqual(@as(usize, 1), reshaped.layout.stride[0]);
+    try std.testing.expectEqual(@as(usize, 4), reshaped.map(.{ @as(usize, 1), @as(usize, 1) }));
 }

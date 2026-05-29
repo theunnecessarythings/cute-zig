@@ -1,12 +1,83 @@
 const std = @import("std");
 const traits_mod = @import("traits.zig");
 const partitioner = @import("partitioner.zig");
+const int_tuple = @import("../int_tuple.zig");
+const numeric = @import("../numeric.zig");
+
+fn valueEquals(comptime x: anytype, comptime expected: comptime_int) bool {
+    const T = @TypeOf(x);
+    if (comptime numeric.is_integral(T)) return numeric.value(x) == expected;
+    return false;
+}
+
+fn isPlaceholderLayout(comptime l: anytype) bool {
+    const L = @TypeOf(l);
+    if (!@hasDecl(L, "ShapeType") or !@hasDecl(L, "StrideType")) return false;
+    if (!int_tuple.is_tuple(@TypeOf(l.shape)) or !int_tuple.is_tuple(@TypeOf(l.stride))) return false;
+    if (int_tuple.rank(@TypeOf(l.shape)) != 2 or int_tuple.rank(@TypeOf(l.stride)) != 2) return false;
+    return valueEquals(l.shape[0], 1) and valueEquals(l.shape[1], 1) and
+        valueEquals(l.stride[0], 0) and valueEquals(l.stride[1], 0);
+}
+
+fn traitName(comptime traits: anytype) []const u8 {
+    if (@hasField(@TypeOf(traits), "name")) return traits.name;
+    return "<unnamed>";
+}
+
+fn requireSupportedTraits(comptime kind: []const u8, comptime name: []const u8, comptime traits: anytype) void {
+    const TraitsT = @TypeOf(traits);
+    if (@hasField(TraitsT, "supported") and !traits.supported) {
+        @compileError(kind ++ " traits " ++ name ++ " are marked unsupported");
+    }
+    if ((@hasField(TraitsT, "layout_a") and isPlaceholderLayout(traits.layout_a)) or
+        (@hasField(TraitsT, "layout_b") and isPlaceholderLayout(traits.layout_b)) or
+        (@hasField(TraitsT, "layout_c") and isPlaceholderLayout(traits.layout_c)) or
+        (@hasField(TraitsT, "layout_src") and isPlaceholderLayout(traits.layout_src)) or
+        (@hasField(TraitsT, "layout_dst") and isPlaceholderLayout(traits.layout_dst)))
+    {
+        @compileError(kind ++ " traits " ++ name ++ " still contain placeholder layouts");
+    }
+}
+
+fn allOnes(comptime v: anytype) bool {
+    const T = @TypeOf(v);
+    if (comptime int_tuple.is_tuple(T)) {
+        inline for (0..comptime int_tuple.rank(T)) |i| {
+            if (!allOnes(v[i])) return false;
+        }
+        return true;
+    }
+    if (comptime numeric.is_integral(T)) return numeric.value(v) == 1;
+    return false;
+}
+
+fn registerChild(comptime Registers: type) type {
+    return @typeInfo(Registers).array.child;
+}
+
+fn registerLen(comptime Registers: type) usize {
+    return @typeInfo(Registers).array.len;
+}
+
+fn tensorChild(comptime TensorT: type) type {
+    return @typeInfo(@FieldType(TensorT, "ptr")).pointer.child;
+}
+
+fn validateRegisterTensor(comptime role: []const u8, tensor: anytype, comptime Registers: type) void {
+    const Expected = registerChild(Registers);
+    const Actual = tensorChild(@TypeOf(tensor));
+    comptime if (Actual != Expected) {
+        @compileError(role ++ " register element type mismatch");
+    };
+    if (tensor.size() != registerLen(Registers)) @panic(role ++ " register tensor has wrong element count");
+}
 
 pub fn MmaAtom(comptime inst: anytype, comptime traits: anytype) type {
     comptime {
         if (!std.mem.eql(u8, inst.name, traits.name)) {
             @compileError("MMA op/traits mismatch: op " ++ inst.name ++ " cannot use traits " ++ traits.name);
         }
+        requireSupportedTraits("MMA", traits.name, traits);
     }
 
     return struct {
@@ -32,13 +103,18 @@ pub fn MmaAtom(comptime inst: anytype, comptime traits: anytype) type {
         pub inline fn fma(d: anytype, a: anytype, b: anytype, c: anytype) void {
             const arch_builders = @import("../arch/builders.zig");
             const atom_op = arch_builders.Mma(Op);
-            
+
+            validateRegisterTensor("D", d, atom_op.DRegisters);
+            validateRegisterTensor("A", a, atom_op.ARegisters);
+            validateRegisterTensor("B", b, atom_op.BRegisters);
+            validateRegisterTensor("C", c, atom_op.CRegisters);
+
             // Cast pointers to expected register array types
             const d_regs = @as(*atom_op.DRegisters, @ptrCast(@alignCast(d.ptr)));
             const a_regs = @as(*const atom_op.ARegisters, @ptrCast(@alignCast(a.ptr))).*;
             const b_regs = @as(*const atom_op.BRegisters, @ptrCast(@alignCast(b.ptr))).*;
             const c_regs = @as(*const atom_op.CRegisters, @ptrCast(@alignCast(c.ptr))).*;
-            
+
             atom_op.fma(d_regs, a_regs, b_regs, c_regs);
         }
     };
@@ -72,10 +148,12 @@ pub fn ThrMMA(comptime Atom: anytype) type {
 
 /// A TiledMMA groups an atom with a thread layout to define a grid-level operation.
 pub fn TiledMMA(comptime Atom: anytype, comptime ThrLayout: anytype) type {
-    _ = ThrLayout;
+    comptime if (!allOnes(ThrLayout)) {
+        @compileError("TiledMMA currently supports only unit thread layouts");
+    };
     return struct {
         const Self = @This();
-        
+
         pub fn get_thread_slice(self: Self, thread_id: usize) ThrMMA(Atom) {
             _ = self;
             return .{ .thread_id = thread_id };
@@ -84,6 +162,8 @@ pub fn TiledMMA(comptime Atom: anytype, comptime ThrLayout: anytype) type {
 }
 
 pub fn CopyAtom(comptime inst: anytype, comptime traits: anytype) type {
+    comptime requireSupportedTraits("Copy", traitName(traits), traits);
+
     return struct {
         const Self = @This();
         pub const Traits = traits;
@@ -98,24 +178,30 @@ pub fn CopyAtom(comptime inst: anytype, comptime traits: anytype) type {
             _ = self;
             return partitioner.partition(tensor, Traits.layout_dst, thread_id);
         }
-        
+
         pub inline fn copy(src: anytype, dst: anytype) void {
             const arch_builders = @import("../arch/builders.zig");
             const atom_op = arch_builders.Copy(Op);
-            
+
+            validateRegisterTensor("copy source", src, atom_op.SRegisters);
+            validateRegisterTensor("copy destination", dst, atom_op.DRegisters);
+
             const s_regs = @as(*const atom_op.SRegisters, @ptrCast(@alignCast(src.ptr))).*;
             const d_regs = @as(*atom_op.DRegisters, @ptrCast(@alignCast(dst.ptr)));
-            
+
             atom_op.copy(s_regs, d_regs, true);
         }
 
         pub inline fn copy_p(src: anytype, dst: anytype, pred: bool) void {
             const arch_builders = @import("../arch/builders.zig");
             const atom_op = arch_builders.Copy(Op);
-            
+
+            validateRegisterTensor("copy source", src, atom_op.SRegisters);
+            validateRegisterTensor("copy destination", dst, atom_op.DRegisters);
+
             const s_regs = @as(*const atom_op.SRegisters, @ptrCast(@alignCast(src.ptr))).*;
             const d_regs = @as(*atom_op.DRegisters, @ptrCast(@alignCast(dst.ptr)));
-            
+
             atom_op.copy(s_regs, d_regs, pred);
         }
     };
@@ -150,10 +236,12 @@ pub fn ThrCopy(comptime Atom: anytype) type {
 
 /// A TiledCopy groups an atom with a thread layout to define a grid-level operation.
 pub fn TiledCopy(comptime Atom: anytype, comptime ThrLayout: anytype) type {
-    _ = ThrLayout;
+    comptime if (!allOnes(ThrLayout)) {
+        @compileError("TiledCopy currently supports only unit thread layouts");
+    };
     return struct {
         const Self = @This();
-        
+
         pub fn get_thread_slice(self: Self, thread_id: usize) ThrCopy(Atom) {
             _ = self;
             return .{ .thread_id = thread_id };

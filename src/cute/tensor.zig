@@ -51,7 +51,7 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
             return self.layout.size();
         }
 
-        // Slicing and viewing will be built on top of layout slicing, 
+        // Slicing and viewing will be built on top of layout slicing,
         // which processes `underscore._` placeholders.
         pub fn slice(self: Self, coord: anytype) @TypeOf(blk: {
             const result = self.layout.slice_and_offset(coord);
@@ -61,9 +61,11 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
             return make_tensor(self.ptr + result.offset, result.layout);
         }
 
-        /// Reshape the tensor to a new shape.
-        pub fn reshape(self: Self, new_shape: anytype) @TypeOf(make_tensor(self.ptr, layout_mod.make_layout(new_shape, self.layout.stride))) {
-            return make_tensor(self.ptr, layout_mod.make_layout(new_shape, self.layout.stride));
+        /// Reshape the tensor to a compact column-major layout with the same element count.
+        pub fn reshape(self: Self, new_shape: anytype) @TypeOf(make_tensor(self.ptr, layout_mod.make_layout_left(new_shape))) {
+            const new_layout = layout_mod.make_layout_left(new_shape);
+            if (self.size() != new_layout.size()) @panic("tensor reshape changes logical element count");
+            return make_tensor(self.ptr, new_layout);
         }
 
         /// Flatten the tensor's layout into 1D.

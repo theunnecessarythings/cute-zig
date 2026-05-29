@@ -1,0 +1,13 @@
+{
+  "cutlass_root": "../cutlass",
+  "cutlass_trait_headers": [
+    "mma_traits_sm80.hpp"
+  ],
+  "databases": [
+    "src/cute/atom/db/mma_traits_sm80.zig"
+  ],
+  "policy": {
+    "placeholder_layout": "layout_mod.make_layout(.{1,1},.{0,0})",
+    "unsupported_marker": ".supported = false"
+  }
+}

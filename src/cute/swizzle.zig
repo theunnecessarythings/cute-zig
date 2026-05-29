@@ -115,15 +115,14 @@ pub fn SwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
             return self.layout.size();
         }
 
-        /// Slicing a SwizzleLayout returns a new SwizzleLayout wrapping the sliced sub-layout.
-        pub fn slice_and_offset(self: Self, coord: anytype) struct { 
-            layout: SwizzleLayout(@TypeOf(self.layout.slice(coord)), SwizzleT), 
-            offset: usize 
-        } {
+        /// Slicing a SwizzleLayout must preserve the original pre-swizzle base
+        /// offset. Applying the swizzle after pointer bumping is wrong for XOR
+        /// layouts because `swizzle(base + local) != base + swizzle(local)`.
+        pub fn slice_and_offset(self: Self, coord: anytype) struct { layout: SlicedSwizzleLayout(@TypeOf(self.layout.slice(coord)), SwizzleT), offset: usize } {
             const result = self.layout.slice_and_offset(coord);
             return .{
-                .layout = make_swizzle_layout(result.layout, self.swizzle),
-                .offset = result.offset,
+                .layout = make_sliced_swizzle_layout(result.layout, self.swizzle, result.offset),
+                .offset = 0,
             };
         }
     };
@@ -131,4 +130,45 @@ pub fn SwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
 
 pub fn make_swizzle_layout(layout: anytype, swizzle: anytype) SwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)) {
     return SwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)).init(layout, swizzle);
+}
+
+pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
+    return struct {
+        layout: LayoutT,
+        swizzle: SwizzleT,
+        base_offset: usize,
+
+        const Self = @This();
+
+        pub fn init(l: LayoutT, s: SwizzleT, base: usize) Self {
+            return .{ .layout = l, .swizzle = s, .base_offset = base };
+        }
+
+        pub fn map(self: Self, coord: anytype) usize {
+            return self.swizzle.apply(self.base_offset + self.layout.map(coord));
+        }
+
+        pub fn map_1d(self: Self, logical_idx: usize) usize {
+            return self.swizzle.apply(self.base_offset + self.layout.map_1d(logical_idx));
+        }
+
+        pub fn size(self: Self) usize {
+            return self.layout.size();
+        }
+
+        pub fn slice_and_offset(self: Self, coord: anytype) struct {
+            layout: SlicedSwizzleLayout(@TypeOf(self.layout.slice(coord)), SwizzleT),
+            offset: usize,
+        } {
+            const result = self.layout.slice_and_offset(coord);
+            return .{
+                .layout = make_sliced_swizzle_layout(result.layout, self.swizzle, self.base_offset + result.offset),
+                .offset = 0,
+            };
+        }
+    };
+}
+
+pub fn make_sliced_swizzle_layout(layout: anytype, swizzle: anytype, base_offset: usize) SlicedSwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)) {
+    return SlicedSwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)).init(layout, swizzle, base_offset);
 }

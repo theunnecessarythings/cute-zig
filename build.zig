@@ -111,14 +111,37 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_parity_tests.step);
     test_step.dependOn(&run_atom_tests.step);
 
+    const compile_fail_cases = [_]struct {
+        source: []const u8,
+        expect: []const u8,
+    }{
+        .{ .source = "tests/compile_fail/unsupported_mma_trait.zig", .expect = "are marked unsupported" },
+        .{ .source = "tests/compile_fail/placeholder_mma_trait.zig", .expect = "still contain placeholder layouts" },
+        .{ .source = "tests/compile_fail/non_unit_tiled_mma.zig", .expect = "TiledMMA currently supports only unit thread layouts" },
+        .{ .source = "tests/compile_fail/wrong_mma_register_type.zig", .expect = "A register element type mismatch" },
+    };
+    inline for (compile_fail_cases) |case| {
+        const check = b.addSystemCommand(&.{
+            "python3",
+            b.pathFromRoot("tools/expect_compile_fail.py"),
+            "--zig",
+            b.graph.zig_exe,
+            "--source",
+            case.source,
+            "--expect",
+            case.expect,
+        });
+        test_step.dependOn(&check.step);
+    }
+
     const cpp_fixture_path = b.pathJoin(&.{ ".zig-cache", "cute-parity-fixture" });
     const build_cpp_fixture = b.addSystemCommand(&.{
-        "c++", "-std=c++17",
-        "-I", b.pathJoin(&.{ cutlass_root, "include" }),
-        "-I", cuda_include,
-        "-I", cccl_include,
-        b.pathFromRoot("tools/cute_parity_fixture.cpp"),
-        "-o", b.pathFromRoot(cpp_fixture_path),
+        "c++",                                           "-std=c++17",
+        "-I",                                            b.pathJoin(&.{ cutlass_root, "include" }),
+        "-I",                                            cuda_include,
+        "-I",                                            cccl_include,
+        b.pathFromRoot("tools/cute_parity_fixture.cpp"), "-o",
+        b.pathFromRoot(cpp_fixture_path),
     });
     const run_cpp_fixture = b.addSystemCommand(&.{b.pathFromRoot(cpp_fixture_path)});
     run_cpp_fixture.step.dependOn(&build_cpp_fixture.step);
