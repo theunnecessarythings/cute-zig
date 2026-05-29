@@ -13,6 +13,17 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cute/root.zig"),
     });
 
+    const cuda_mod = b.addModule("cuda", .{
+        .root_source_file = b.path("src/cuda.zig"),
+    });
+
+    // NVPTX Target for Device Code
+    const nvptx_mcpu = b.option([]const u8, "gpu", "Target GPU features to add or subtract") orelse "sm_80";
+    const nvptx_target = b.resolveTargetQuery(std.Build.parseTargetQuery(.{
+        .arch_os_abi = "nvptx64-cuda-none",
+        .cpu_features = nvptx_mcpu,
+    }) catch unreachable);
+
     // Host tests/examples
     const exe = b.addExecutable(.{
         .name = "cute-zig-test",
@@ -24,37 +35,13 @@ pub fn build(b: *std.Build) void {
         }),
     });
     exe.root_module.addImport("cute", cute_mod);
-    
-    // CUDA Setup (based on starter)
     exe.root_module.addIncludePath(.{ .cwd_relative = b.pathJoin(&.{ cuda_root, "include" }) });
     exe.root_module.addLibraryPath(.{ .cwd_relative = "/usr/lib64" });
     exe.root_module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ cuda_root, "lib", "stubs" }) });
     exe.addRPath(.{ .cwd_relative = "/usr/lib64" });
     exe.root_module.linkSystemLibrary("cuda", .{});
     exe.root_module.addCSourceFile(.{ .file = b.path("src/glibc_csu_compat.c") });
-    
     b.installArtifact(exe);
-
-    // NVPTX Target for Device Code
-    const nvptx_mcpu = b.option([]const u8, "gpu", "Target GPU features to add or subtract") orelse "sm_80";
-    const nvptx_target = b.resolveTargetQuery(std.Build.parseTargetQuery(.{
-        .arch_os_abi = "nvptx64-cuda-none",
-        .cpu_features = nvptx_mcpu,
-    }) catch unreachable);
-
-    const device_code = b.addObject(.{
-        .name = "cute-kernels",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main_device.zig"),
-            .target = nvptx_target,
-            .optimize = .ReleaseFast,
-        }),
-    });
-    device_code.root_module.addImport("cute", cute_mod);
-
-    const cuda_mod = b.addModule("cuda", .{
-        .root_source_file = b.path("src/cuda.zig"),
-    });
 
     // SGEMM Example Host Driver
     const sgemm_exe = b.addExecutable(.{
@@ -75,23 +62,16 @@ pub fn build(b: *std.Build) void {
     sgemm_exe.root_module.addCSourceFile(.{ .file = b.path("src/glibc_csu_compat.c") });
 
     // SGEMM Example Kernel
-    const sgemm_kernel = b.addLibrary(.{
-        .linkage = .dynamic,
-        .name = "sgemm-sm80",
+    const sgemm_kernel = b.addObject(.{
+        .name = "sgemm-sm80-kernel",
         .root_module = b.createModule(.{
             .root_source_file = b.path("examples/main_device.zig"),
             .target = nvptx_target,
             .optimize = .ReleaseFast,
         }),
     });
-    sgemm_kernel.linker_allow_shlib_undefined = false;
-    sgemm_kernel.bundle_compiler_rt = false;
     sgemm_kernel.root_module.addImport("cute", cute_mod);
-    const raw_asm = sgemm_kernel.getEmittedAsm();
-
-    const clean_ptx = b.addSystemCommand(&.{ "python3", "tools/clean_ptx.py" });
-    clean_ptx.addFileArg(raw_asm);
-    const sgemm_asm = clean_ptx.addOutputFileArg("sgemm-sm80.s");
+    const sgemm_asm = sgemm_kernel.getEmittedAsm();
 
     sgemm_exe.root_module.addAnonymousImport("cuda-module", .{
         .root_source_file = sgemm_asm,
@@ -102,11 +82,7 @@ pub fn build(b: *std.Build) void {
     const sgemm_step = b.step("run-sgemm", "Run the SGEMM SM80 example on GPU");
     sgemm_step.dependOn(&run_sgemm.step);
 
-    const nvptx_module = device_code.getEmittedAsm();
-    exe.root_module.addAnonymousImport("cuda-module", .{
-        .root_source_file = nvptx_module,
-    });
-
+    // Standard run/test steps
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     const run_step = b.step("run", "Run the app");
@@ -131,26 +107,19 @@ pub fn build(b: *std.Build) void {
 
     const run_parity_tests = b.addRunArtifact(parity_tests);
     const run_atom_tests = b.addRunArtifact(atom_tests);
-
     const test_step = b.step("test", "Run Zig parity and module tests");
     test_step.dependOn(&run_parity_tests.step);
     test_step.dependOn(&run_atom_tests.step);
 
     const cpp_fixture_path = b.pathJoin(&.{ ".zig-cache", "cute-parity-fixture" });
     const build_cpp_fixture = b.addSystemCommand(&.{
-        "c++",
-        "-std=c++17",
-        "-I",
-        b.pathJoin(&.{ cutlass_root, "include" }),
-        "-I",
-        cuda_include,
-        "-I",
-        cccl_include,
+        "c++", "-std=c++17",
+        "-I", b.pathJoin(&.{ cutlass_root, "include" }),
+        "-I", cuda_include,
+        "-I", cccl_include,
         b.pathFromRoot("tools/cute_parity_fixture.cpp"),
-        "-o",
-        b.pathFromRoot(cpp_fixture_path),
+        "-o", b.pathFromRoot(cpp_fixture_path),
     });
-
     const run_cpp_fixture = b.addSystemCommand(&.{b.pathFromRoot(cpp_fixture_path)});
     run_cpp_fixture.step.dependOn(&build_cpp_fixture.step);
     const parity_cpp_step = b.step("parity-cpp", "Run the C++ CuTe reference parity fixture");

@@ -3,6 +3,12 @@ const traits_mod = @import("traits.zig");
 const partitioner = @import("partitioner.zig");
 
 pub fn MmaAtom(comptime inst: anytype, comptime traits: anytype) type {
+    comptime {
+        if (!std.mem.eql(u8, inst.name, traits.name)) {
+            @compileError("MMA op/traits mismatch: op " ++ inst.name ++ " cannot use traits " ++ traits.name);
+        }
+    }
+
     return struct {
         const Self = @This();
         pub const Traits = traits;
