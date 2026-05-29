@@ -1,7 +1,7 @@
 .{
-    .name = .vector_add_minimal,
+    .name = .cute_zig,
     .version = "0.1.0",
-    .fingerprint = 0xec671c116a41e395,
+    .fingerprint = 0xe996e63027692b03,
     .dependencies = .{},
     .paths = .{""},
 }

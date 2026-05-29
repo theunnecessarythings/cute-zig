@@ -342,7 +342,9 @@ fn crd2idx_with_basis_coord(coord: anytype, shp: anytype, strd: anytype, basis_c
         return @as(usize, @intCast(numeric.value(basis_value(basis_coord, strd)))) * @as(usize, @intCast(numeric.value(strd.value)));
     }
     if (comptime int_tuple.is_tuple(ShapeT)) {
-        comptime if (!int_tuple.is_tuple(CoordT)) @compileError("tuple shape requires tuple coordinate");
+        if (comptime !int_tuple.is_tuple(CoordT)) {
+            return crd2idx_with_basis_coord(idx2crd(coord, shp, strd), shp, strd, basis_coord);
+        }
         comptime if (int_tuple.rank(CoordT) != int_tuple.rank(ShapeT)) @compileError("coordinate and shape ranks must match");
         var result: usize = 0;
         inline for (0..comptime int_tuple.rank(ShapeT)) |i| {

@@ -5,9 +5,9 @@ const cuda = @import("cuda");
 const ptx = @embedFile("cuda-module");
 
 pub fn main() !void {
-    const M: usize = 16;
-    const N: usize = 8;
-    const K: usize = 16;
+    const M: usize = 32;
+    const N: usize = 24;
+    const K: usize = 48;
 
     std.log.info("Initializing CUDA...", .{});
     cuda.init();
@@ -25,17 +25,12 @@ pub fn main() !void {
     var h_C_ref: [M * N]f32 = undefined;
 
     // Initialize A and B
-    for (0..M * K) |i| h_A[i] = @floatCast(@as(f32, @floatFromInt(i)) / 100.0);
-    for (0..N * K) |i| h_B[i] = @floatCast(@as(f32, @floatFromInt(i)) / 100.0);
+    for (0..M * K) |i| h_A[i] = @floatCast(@as(f32, @floatFromInt(i % 100)) / 100.0);
+    for (0..N * K) |i| h_B[i] = @floatCast(@as(f32, @floatFromInt(i % 100)) / 100.0);
     for (0..M * N) |i| h_C[i] = 0.0;
     for (0..M * N) |i| h_C_ref[i] = 0.0;
 
     // Reference SGEMM (C = A * B^T)
-    // A: (M, K) Row-major
-    // B: (N, K) Row-major -> B^T is (K, N) Col-major?
-    // Wait, B in kernel is (8, 16) row-major, which is (N, K).
-    // GEMM is C(M, N) = A(M, K) * B(K, N).
-    // If B is (N, K), we need B^T.
     for (0..M) |m| {
         for (0..N) |n| {
             var sum: f32 = 0.0;
@@ -63,7 +58,11 @@ pub fn main() !void {
 
     std.log.info("Launching Kernel...", .{});
     const config = cuda.LaunchConfig{
-        .grid_dim = .{ .x = 1, .y = 1, .z = 1 },
+        .grid_dim = .{ 
+            .x = @intCast((N + 7) / 8), 
+            .y = @intCast((M + 15) / 16), 
+            .z = 1 
+        },
         .block_dim = .{ .x = 32, .y = 1, .z = 1 }, // 32 threads for one warp (MMA atom is warp-level)
     };
     

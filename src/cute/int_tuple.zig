@@ -7,7 +7,7 @@ pub fn is_int(comptime T: type) bool {
 
 pub fn is_tuple(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .@"struct" => |s| s.is_tuple,
+        .@"struct" => |s| s.is_tuple or (s.fields.len > 0 and s.fields[0].name[0] == '0'),
         .array => true,
         else => false,
     };
