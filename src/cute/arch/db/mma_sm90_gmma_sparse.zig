@@ -4481,3 +4481,6 @@ pub const GMMA_64x256x64_F32E5M2E5M2_RS_TN = types.MmaInst {
     .saturate = false,
 };
 
+
+pub const support_status = .unsupported;
+pub const unsupported_reason = "Not yet implemented";

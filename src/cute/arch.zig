@@ -5,8 +5,10 @@ const std = @import("std");
 pub const types = @import("arch/types.zig");
 pub const builders = @import("arch/builders.zig");
 pub const db = @import("arch/db/mod.zig");
-pub const tma = @import("arch/tma.zig");
-pub const wgmma = @import("arch/wgmma.zig");
+pub const check = @import("arch/check.zig");
+// Disabled until descriptor encoding is validated against CuTe/CUTLASS.
+// pub const tma = @import("arch/tma.zig");
+// pub const wgmma = @import("arch/wgmma.zig");
 
 /// Hand-written utility bindings for special registers.
 pub const util = struct {
@@ -159,7 +161,7 @@ pub const sync_sm90 = struct {
 /// Hand-written atomic operations.
 pub const atomic = struct {
     pub inline fn atomic_add_f32(ptr: *f32, val: f32) void {
-        asm volatile ("atom.add.f32 [%[p]], %[v];"
+        asm volatile ("red.add.f32 [%[p]], %[v];"
             :
             : [p] "l" (@intFromPtr(ptr)),
               [v] "f" (val),
@@ -168,7 +170,7 @@ pub const atomic = struct {
     }
     pub inline fn atomic_add_f16x2(ptr: *[2]f16, val: [2]f16) void {
         const v = @as(u32, @bitCast(val));
-        asm volatile ("atom.add.noftz.f16x2 [%[p]], %[v];"
+        asm volatile ("red.add.noftz.f16x2 [%[p]], %[v];"
             :
             : [p] "l" (@intFromPtr(ptr)),
               [v] "r" (v),
@@ -176,7 +178,7 @@ pub const atomic = struct {
         );
     }
     pub inline fn atomic_max_i32(ptr: *i32, val: i32) void {
-        asm volatile ("atom.max.s32 [%[p]], %[v];"
+        asm volatile ("red.max.s32 [%[p]], %[v];"
             :
             : [p] "l" (@intFromPtr(ptr)),
               [v] "r" (val),

@@ -23,7 +23,7 @@ pub const SM75_8x8x16_S32S8S8S32_TN = types.MmaInst {
     .a_regs = .{ .ty = u32, .count = 1 },
     .b_regs = .{ .ty = u32, .count = 1 },
     .c_regs = .{ .ty = u32, .count = 2 },
-    .d_ty = .f32, .a_ty = .f16, .b_ty = .f16, .c_ty = .f32,
+    .d_ty = .s32, .a_ty = .s8, .b_ty = .s8, .c_ty = .s32,
     .layout_a = .row, .layout_b = .col,
     .ptx = "mma.sync.aligned.m8n8k16.row.col.s32.s8.s8.s32 {%0, %1}, {%2}, {%3}, {%4, %5};",
     .saturate = false,

@@ -10,6 +10,9 @@ pub const DType = enum {
     u8,
     s32,
     u32,
+    u1,
+    s4,
+    u4,
 };
 
 pub const Layout = enum {
@@ -47,9 +50,28 @@ pub const MmaInst = struct {
     saturate: bool = false,
 };
 
+pub const CopyKind = enum {
+    reg_to_reg,
+    smem_to_reg,
+    reg_to_smem,
+    gmem_to_smem_async,
+    tma_load,
+    tma_store,
+};
+
+pub const AddressSpace = enum {
+    register,
+    shared,
+    global,
+    descriptor,
+};
+
 pub const CopyInst = struct {
     name: []const u8,
     sm: u16,
+    kind: CopyKind = .reg_to_reg, // Default for backward compat during migration
+    src_space: AddressSpace = .register,
+    dst_space: AddressSpace = .register,
     s_regs: RegSpec,
     d_regs: RegSpec,
     ptx: []const u8,

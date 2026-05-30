@@ -1,6 +1,10 @@
 const std = @import("std");
 const cute = @import("cute");
 
+comptime {
+    cute.arch.check.force_check();
+}
+
 test "layout parity baseline with CuTe fixture" {
     const col_major = cute.layout.make_layout(
         .{ @as(usize, 4), @as(usize, 4) },

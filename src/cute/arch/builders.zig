@@ -44,7 +44,7 @@ pub fn Mma(comptime inst: types.MmaInst) type {
     };
 }
 
-pub fn Copy(comptime inst: types.CopyInst) type {
+fn RegisterCopyWrapper(comptime inst: types.CopyInst) type {
     return struct {
         pub const SRegisters = [inst.s_regs.count]inst.s_regs.ty;
         pub const DRegisters = [inst.d_regs.count]inst.d_regs.ty;
@@ -59,5 +59,116 @@ pub fn Copy(comptime inst: types.CopyInst) type {
             };
             @field(dispatch, func_name)(inst.ptx, src, dst, pred);
         }
+    };
+}
+
+fn SharedLoadWrapper(comptime inst: types.CopyInst) type {
+    return struct {
+        pub const SRegisters = [*]addrspace(.shared) const u8;
+        pub const DRegisters = [inst.d_regs.count]inst.d_regs.ty;
+
+        pub inline fn copy(src: SRegisters, dst: *DRegisters, pred: bool) void {
+            _ = pred;
+            const count = inst.d_regs.count;
+            if (count == 1) {
+                var d0: inst.d_regs.ty = undefined;
+                asm volatile (inst.ptx
+                    : [d0] "=r" (d0),
+                    : [s0] "r" (@as(u32, @intCast(@intFromPtr(src)))),
+                    : .{ .memory = true }
+                );
+                dst[0] = d0;
+            } else if (count == 2) {
+                var d0: inst.d_regs.ty = undefined;
+                var d1: inst.d_regs.ty = undefined;
+                asm volatile (inst.ptx
+                    : [d0] "=r" (d0), [d1] "=r" (d1),
+                    : [s0] "r" (@as(u32, @intCast(@intFromPtr(src)))),
+                    : .{ .memory = true }
+                );
+                dst[0] = d0; dst[1] = d1;
+            } else if (count == 4) {
+                var d0: inst.d_regs.ty = undefined;
+                var d1: inst.d_regs.ty = undefined;
+                var d2: inst.d_regs.ty = undefined;
+                var d3: inst.d_regs.ty = undefined;
+                asm volatile (inst.ptx
+                    : [d0] "=r" (d0), [d1] "=r" (d1), [d2] "=r" (d2), [d3] "=r" (d3),
+                    : [s0] "r" (@as(u32, @intCast(@intFromPtr(src)))),
+                    : .{ .memory = true }
+                );
+                dst[0] = d0; dst[1] = d1; dst[2] = d2; dst[3] = d3;
+            } else {
+                @compileError("Unsupported register count for ldmatrix");
+            }
+        }
+    };
+}
+
+fn SharedStoreWrapper(comptime inst: types.CopyInst) type {
+    return struct {
+        pub const SRegisters = [inst.s_regs.count]inst.s_regs.ty;
+        pub const DRegisters = [*]addrspace(.shared) u8;
+
+        pub inline fn copy(src: SRegisters, dst: DRegisters, pred: bool) void {
+            _ = pred;
+            const count = inst.s_regs.count;
+            if (count == 1) {
+                asm volatile (inst.ptx
+                    :
+                    : [d0] "r" (@as(u32, @intCast(@intFromPtr(dst)))),
+                      [s0] "r" (src[0]),
+                    : .{ .memory = true }
+                );
+            } else if (count == 2) {
+                asm volatile (inst.ptx
+                    :
+                    : [d0] "r" (@as(u32, @intCast(@intFromPtr(dst)))),
+                      [s0] "r" (src[0]), [s1] "r" (src[1]),
+                    : .{ .memory = true }
+                );
+            } else if (count == 4) {
+                asm volatile (inst.ptx
+                    :
+                    : [d0] "r" (@as(u32, @intCast(@intFromPtr(dst)))),
+                      [s0] "r" (src[0]), [s1] "r" (src[1]), [s2] "r" (src[2]), [s3] "r" (src[3]),
+                    : .{ .memory = true }
+                );
+            } else {
+                @compileError("Unsupported register count for stmatrix");
+            }
+        }
+    };
+}
+
+fn AsyncGlobalToSharedWrapper(comptime inst: types.CopyInst) type {
+    return struct {
+        pub const SRegisters = [*]addrspace(.global) const u8;
+        pub const DRegisters = [*]addrspace(.shared) u8;
+
+        pub inline fn copy(src: SRegisters, dst: DRegisters, pred: bool) void {
+            _ = pred;
+            asm volatile (inst.ptx
+                :
+                : [d0] "r" (@as(u32, @intCast(@intFromPtr(dst)))),
+                  [s0] "l" (@intFromPtr(src)),
+                : .{ .memory = true }
+            );
+        }
+    };
+}
+
+fn TmaWrapper(comptime inst: types.CopyInst) type {
+    _ = inst;
+    return struct {}; // placeholder
+}
+
+pub fn Copy(comptime inst: types.CopyInst) type {
+    return switch (inst.kind) {
+        .smem_to_reg => SharedLoadWrapper(inst),
+        .reg_to_smem => SharedStoreWrapper(inst),
+        .gmem_to_smem_async => AsyncGlobalToSharedWrapper(inst),
+        .reg_to_reg => RegisterCopyWrapper(inst),
+        .tma_load, .tma_store => TmaWrapper(inst),
     };
 }
