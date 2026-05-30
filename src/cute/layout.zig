@@ -65,6 +65,7 @@ pub fn Layout(comptime Shape: type, comptime Stride: type) type {
         }
 
         pub fn cosize(self: Self) usize {
+            if (self.size() == 0) return 0;
             // Real cosize: maximum extent of the layout footprint.
             return cosize_recursive(self.shape, self.stride) + 1;
         }
@@ -80,6 +81,7 @@ pub fn Layout(comptime Shape: type, comptime Stride: type) type {
                 return max_offset;
             } else {
                 const s = @as(usize, @intCast(numeric.value(shp)));
+                if (s == 0) return 0;
                 const d = strd;
                 const int_d = if (comptime is_scaled_basis(@TypeOf(d)))
                     @as(isize, @intCast(numeric.value(d.value)))
@@ -186,6 +188,9 @@ pub fn make_compact_coordinate_encoding_layout(shp: anytype) @TypeOf(make_layout
 }
 
 pub fn make_layout_like(l: anytype) @TypeOf(make_layout(l.shape, compact_order_like(l.shape, l.stride))) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("make_layout_like does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     return make_layout(l.shape, compact_order_like(l.shape, l.stride));
 }
 
@@ -233,6 +238,9 @@ pub fn take(comptime begin: usize, comptime end: usize, l: anytype) @TypeOf(make
     int_tuple.take(begin, end, l.shape),
     int_tuple.take(begin, end, l.stride),
 )) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("take does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     return make_layout(
         int_tuple.take(begin, end, l.shape),
         int_tuple.take(begin, end, l.stride),
@@ -243,6 +251,9 @@ pub fn select2(comptime first: usize, comptime second: usize, l: anytype) @TypeO
     .{ l.shape[first], l.shape[second] },
     .{ l.stride[first], l.stride[second] },
 )) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("select2 does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     return make_layout(
         .{ l.shape[first], l.shape[second] },
         .{ l.stride[first], l.stride[second] },
@@ -292,10 +303,16 @@ pub fn complement_auto(l: anytype) @TypeOf(complement(l, numeric.c(@as(comptime_
 }
 
 pub fn logical_divide(l: anytype, tiler: anytype) LogicalDivideType(@TypeOf(l), @TypeOf(tiler)) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("logical_divide does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     return logical_divide_impl(l, tiler);
 }
 
 pub fn zipped_divide(l: anytype, tiler: anytype) @TypeOf(tile_unzip(logical_divide(l, tiler), tiler)) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("zipped_divide does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     return tile_unzip(logical_divide(l, tiler), tiler);
 }
 
@@ -311,18 +328,30 @@ pub fn logical_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
     logical_product_shape(block, tiler),
     logical_product_stride(block, tiler),
 )) {
+    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
+        @compileError("logical_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
+    };
     return make_layout(logical_product_shape(block, tiler), logical_product_stride(block, tiler));
 }
 
 pub fn zipped_product(block: anytype, tiler: anytype) @TypeOf(tile_unzip(logical_product(block, tiler), tiler)) {
+    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
+        @compileError("zipped_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
+    };
     return tile_unzip(logical_product(block, tiler), tiler);
 }
 
 pub fn tiled_product(block: anytype, tiler: anytype) @TypeOf(unpack_second_mode(zipped_product(block, tiler))) {
+    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
+        @compileError("tiled_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
+    };
     return unpack_second_mode(zipped_product(block, tiler));
 }
 
 pub fn flat_product(block: anytype, tiler: anytype) @TypeOf(unpack_both_modes(zipped_product(block, tiler))) {
+    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
+        @compileError("flat_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
+    };
     return unpack_both_modes(zipped_product(block, tiler));
 }
 
@@ -330,14 +359,26 @@ pub fn blocked_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
     blocked_product_shape(block, tiler),
     blocked_product_stride(block, tiler),
 )) {
-    return make_layout(blocked_product_shape(block, tiler), blocked_product_stride(block, tiler));
+    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
+        @compileError("blocked_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
+    };
+    return make_layout(
+        blocked_product_shape(block, tiler),
+        blocked_product_stride(block, tiler),
+    );
 }
 
 pub fn raked_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
     raked_product_shape(block, tiler),
     raked_product_stride(block, tiler),
 )) {
-    return make_layout(raked_product_shape(block, tiler), raked_product_stride(block, tiler));
+    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
+        @compileError("raked_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
+    };
+    return make_layout(
+        raked_product_shape(block, tiler),
+        raked_product_stride(block, tiler),
+    );
 }
 
 pub fn coshape(l: anytype) usize {
