@@ -111,6 +111,36 @@ pub fn size(t: anytype) usize {
     return product(t);
 }
 
+pub fn static_product(t: anytype) StaticProductType(@TypeOf(t)) {
+    const T = @TypeOf(t);
+    if (comptime is_tuple(T)) {
+        return static_product_recursive(t, 0);
+    } else {
+        return t;
+    }
+}
+
+fn StaticProductType(comptime T: type) type {
+    if (comptime is_tuple(T)) {
+        const R = rank(T);
+        if (R == 0) return @TypeOf(numeric._1);
+        return StaticProductRecursiveType(T, 0);
+    }
+    return T;
+}
+
+fn StaticProductRecursiveType(comptime T: type, comptime i: usize) type {
+    const R = rank(T);
+    if (i == R - 1) return StaticProductType(child_type(T, i));
+    return ArithmeticType(StaticProductType(child_type(T, i)), StaticProductRecursiveType(T, i + 1), .mul);
+}
+
+fn static_product_recursive(t: anytype, comptime i: usize) StaticProductRecursiveType(@TypeOf(t), i) {
+    const R = comptime rank(@TypeOf(t));
+    if (i == R - 1) return static_product(t[i]);
+    return mul(static_product(t[i]), static_product_recursive(t, i + 1));
+}
+
 pub fn product_each(t: anytype) ProductEachType(@TypeOf(t)) {
     if (comptime is_tuple(@TypeOf(t))) {
         var result: ProductEachType(@TypeOf(t)) = undefined;

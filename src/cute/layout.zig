@@ -1865,8 +1865,8 @@ pub fn make_layout_1d(n: anytype) @TypeOf(make_layout(n, @as(isize, 1))) {
 }
 
 /// Create a Column-Major layout (M, N) -> (1, M)
-pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout(.{ m, n }, .{ numeric._1, m })) {
-    return make_layout(.{ m, n }, .{ numeric._1, m });
+pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout(.{ m, n }, .{ numeric._1, int_tuple.static_product(m) })) {
+    return make_layout(.{ m, n }, .{ numeric._1, int_tuple.static_product(m) });
 }
 
 pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
@@ -1889,6 +1889,15 @@ pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
             };
         }
         pub fn size(self: Self) usize { return self.rhs.size(); }
+        pub fn get_hier_coord(self: Self, idx: usize) @TypeOf(self.rhs.get_hier_coord(idx)) {
+            return self.rhs.get_hier_coord(idx);
+        }
+        pub fn get_flat_coord(self: Self, idx: usize) @TypeOf(self.rhs.get_flat_coord(idx)) {
+            return self.rhs.get_flat_coord(idx);
+        }
+        pub fn get_1d_coord(self: Self, idx: usize) usize {
+            return self.rhs.get_1d_coord(idx);
+        }
         pub fn cosize(self: Self) usize {
             const sz = self.size();
             if (sz == 0) return 0;
@@ -2000,6 +2009,7 @@ test "make_layout_col_major handles runtime and static values safely" {
     const l2 = make_layout_col_major(n._32, n._64);
     try std.testing.expectEqual(@as(usize, 32), n.value(l2.shape[0]));
     try std.testing.expectEqual(@as(usize, 32), @as(usize, @intCast(n.value(l2.stride[1]))));
+    try std.testing.expect(comptime numeric.is_static_int(@TypeOf(l2.stride[1])));
 }
 
 test "map_1d handles zero-stride extent-one modes" {
