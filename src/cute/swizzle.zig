@@ -141,7 +141,13 @@ pub fn SwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
         }
 
         pub fn cosize(self: Self) usize {
-            return self.layout.cosize();
+            if (self.size() == 0) return 0;
+            var max_offset: usize = 0;
+            for (0..self.size()) |i| {
+                const off = self.map_1d(i);
+                if (off > max_offset) max_offset = off;
+            }
+            return max_offset + 1;
         }
 
         /// Slicing a SwizzleLayout must preserve the original pre-swizzle base
@@ -215,7 +221,13 @@ pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type
         }
 
         pub fn cosize(self: Self) usize {
-            return self.layout.cosize();
+            if (self.size() == 0) return 0;
+            var max_offset: usize = 0;
+            for (0..self.size()) |i| {
+                const off = self.map_1d(i);
+                if (off > max_offset) max_offset = off;
+            }
+            return max_offset + 1;
         }
 
         pub fn slice_and_offset(self: Self, coord: anytype) struct {
@@ -233,6 +245,33 @@ pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type
 
 pub fn make_sliced_swizzle_layout(layout: anytype, swizzle: anytype, base_offset: usize) SlicedSwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)) {
     return SlicedSwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)).init(layout, swizzle, base_offset);
+}
+
+test "swizzle layout footprint must include mapped addresses" {
+    const layout = @import("layout.zig");
+
+    const base = layout.make_layout(@as(usize, 3), @as(usize, 1));
+    const sw = make_swizzle_layout(base, Swizzle(1, 0, 1){});
+
+    try std.testing.expectEqual(@as(usize, 3), base.cosize());
+    try std.testing.expectEqual(@as(usize, 3), sw.map_1d(2)); // accesses offset 3
+    try std.testing.expect(sw.cosize() >= 4);
+}
+
+test "sliced swizzle layout cosize includes base offset" {
+    const layout = @import("layout.zig");
+    const numeric = @import("numeric.zig");
+
+    const base = layout.make_layout(@as(usize, 8), @as(usize, 1));
+    const sw = make_swizzle_layout(base, Swizzle(1, 0, 2){});
+    
+    // Slice element 4 (offset 4)
+    const result = sw.slice_and_offset(numeric._4);
+    const sliced = result.layout;
+
+    try std.testing.expectEqual(@as(usize, 1), sliced.size());
+    try std.testing.expectEqual(@as(usize, 5), sliced.map_1d(0)); // swizzle(4) = 5
+    try std.testing.expect(sliced.cosize() >= 6);
 }
 
 test "swizzle layout exposes shape and stride for generic layout algorithms" {

@@ -63,8 +63,14 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
 
         /// Reshape the tensor to a compact column-major layout with the same element count.
         pub fn reshape(self: Self, new_shape: anytype) @TypeOf(make_tensor(self.ptr, layout_mod.make_layout_left(new_shape))) {
+            comptime if (@hasDecl(LayoutType, "transformed_layout")) {
+                @compileError("reshape does not yet preserve transformed tensor layout semantics");
+            };
             const new_layout = layout_mod.make_layout_left(new_shape);
             if (self.size() != new_layout.size()) @panic("tensor reshape changes logical element count");
+            if (self.layout.cosize() != self.size()) {
+                @panic("tensor reshape requires a contiguous compact footprint");
+            }
             return make_tensor(self.ptr, new_layout);
         }
 
@@ -73,6 +79,17 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
             return make_tensor(self.ptr, layout_mod.flatten_layout(self.layout));
         }
     };
+}
+
+test "tensor reshape basics" {
+    const layout = @import("layout.zig");
+    var data = [_]i32{ 1, 2, 3, 4, 5, 6 };
+    const l = layout.make_layout(.{ @as(usize, 2), @as(usize, 3) }, .{ @as(usize, 1), @as(usize, 2) });
+    const t = make_tensor(@as([*]i32, &data), l);
+
+    const reshaped = t.reshape(@as(usize, 6));
+    try std.testing.expectEqual(@as(usize, 6), reshaped.size());
+    try std.testing.expectEqual(@as(i32, 2), reshaped.get_1d(1));
 }
 
 /// Helper to create a Tensor from a pointer and a layout.

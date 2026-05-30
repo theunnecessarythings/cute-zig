@@ -669,7 +669,7 @@ fn ElemScaleType(comptime TA: type, comptime TB: type) type {
     return ArithmeticType(TA, usize, .mul);
 }
 
-fn child_type(comptime T: type, comptime i: usize) type {
+pub fn child_type(comptime T: type, comptime i: usize) type {
     return switch (@typeInfo(T)) {
         .@"struct" => |s| s.fields[i].type,
         .array => |a| a.child,

@@ -188,14 +188,37 @@ pub fn make_compact_coordinate_encoding_layout(shp: anytype) @TypeOf(make_layout
 }
 
 pub fn make_layout_like(l: anytype) @TypeOf(make_layout(l.shape, compact_order_like(l.shape, l.stride))) {
-    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
-        @compileError("make_layout_like does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
-    };
+    reject_transformed_operand("make_layout_like", l);
     return make_layout(l.shape, compact_order_like(l.shape, l.stride));
 }
 
 pub fn make_ordered_layout(shp: anytype, order: anytype) @TypeOf(make_layout(shp, compact_order(shp, order))) {
     return make_layout(shp, compact_order(shp, order));
+}
+
+fn contains_transformed_layout_type(comptime T: type) bool {
+    if (@hasDecl(T, "transformed_layout")) return true;
+    if (comptime int_tuple.is_tuple(T)) {
+        const R = comptime int_tuple.rank(T);
+        inline for (0..R) |i| {
+            if (contains_transformed_layout_type(int_tuple.child_type(T, i))) return true;
+        }
+    }
+    return false;
+}
+
+fn reject_transformed_operand_type(comptime op: []const u8, comptime T: type) void {
+    if (comptime contains_transformed_layout_type(T)) {
+        @compileError(op ++ " does not yet preserve transformed layout operands");
+    }
+}
+
+fn contains_transformed_layout(v: anytype) bool {
+    return contains_transformed_layout_type(@TypeOf(v));
+}
+
+fn reject_transformed_operand(comptime op: []const u8, v: anytype) void {
+    reject_transformed_operand_type(op, @TypeOf(v));
 }
 
 pub fn shape(l: anytype) @TypeOf(l.shape) {
@@ -238,9 +261,7 @@ pub fn take(comptime begin: usize, comptime end: usize, l: anytype) @TypeOf(make
     int_tuple.take(begin, end, l.shape),
     int_tuple.take(begin, end, l.stride),
 )) {
-    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
-        @compileError("take does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
-    };
+    reject_transformed_operand("take", l);
     return make_layout(
         int_tuple.take(begin, end, l.shape),
         int_tuple.take(begin, end, l.stride),
@@ -251,9 +272,7 @@ pub fn select2(comptime first: usize, comptime second: usize, l: anytype) @TypeO
     .{ l.shape[first], l.shape[second] },
     .{ l.stride[first], l.stride[second] },
 )) {
-    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
-        @compileError("select2 does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
-    };
+    reject_transformed_operand("select2", l);
     return make_layout(
         .{ l.shape[first], l.shape[second] },
         .{ l.stride[first], l.stride[second] },
@@ -303,16 +322,14 @@ pub fn complement_auto(l: anytype) @TypeOf(complement(l, numeric.c(@as(comptime_
 }
 
 pub fn logical_divide(l: anytype, tiler: anytype) LogicalDivideType(@TypeOf(l), @TypeOf(tiler)) {
-    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
-        @compileError("logical_divide does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
-    };
+    reject_transformed_operand("logical_divide", l);
+    reject_transformed_operand("logical_divide", tiler);
     return logical_divide_impl(l, tiler);
 }
 
 pub fn zipped_divide(l: anytype, tiler: anytype) @TypeOf(tile_unzip(logical_divide(l, tiler), tiler)) {
-    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
-        @compileError("zipped_divide does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
-    };
+    reject_transformed_operand("zipped_divide", l);
+    reject_transformed_operand("zipped_divide", tiler);
     return tile_unzip(logical_divide(l, tiler), tiler);
 }
 
@@ -328,30 +345,22 @@ pub fn logical_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
     logical_product_shape(block, tiler),
     logical_product_stride(block, tiler),
 )) {
-    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
-        @compileError("logical_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
-    };
+    reject_transformed_operand("logical_product", block);
+    reject_transformed_operand("logical_product", tiler);
     return make_layout(logical_product_shape(block, tiler), logical_product_stride(block, tiler));
 }
 
 pub fn zipped_product(block: anytype, tiler: anytype) @TypeOf(tile_unzip(logical_product(block, tiler), tiler)) {
-    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
-        @compileError("zipped_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
-    };
+    reject_transformed_operand("zipped_product", block);
+    reject_transformed_operand("zipped_product", tiler);
     return tile_unzip(logical_product(block, tiler), tiler);
 }
 
 pub fn tiled_product(block: anytype, tiler: anytype) @TypeOf(unpack_second_mode(zipped_product(block, tiler))) {
-    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
-        @compileError("tiled_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
-    };
     return unpack_second_mode(zipped_product(block, tiler));
 }
 
 pub fn flat_product(block: anytype, tiler: anytype) @TypeOf(unpack_both_modes(zipped_product(block, tiler))) {
-    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
-        @compileError("flat_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
-    };
     return unpack_both_modes(zipped_product(block, tiler));
 }
 
@@ -359,9 +368,8 @@ pub fn blocked_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
     blocked_product_shape(block, tiler),
     blocked_product_stride(block, tiler),
 )) {
-    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
-        @compileError("blocked_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
-    };
+    reject_transformed_operand("blocked_product", block);
+    reject_transformed_operand("blocked_product", tiler);
     return make_layout(
         blocked_product_shape(block, tiler),
         blocked_product_stride(block, tiler),
@@ -372,9 +380,8 @@ pub fn raked_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
     raked_product_shape(block, tiler),
     raked_product_stride(block, tiler),
 )) {
-    comptime if (@hasDecl(@TypeOf(block), "transformed_layout")) {
-        @compileError("raked_product does not yet preserve transformed layout semantics for " ++ @TypeOf(block).transform_name);
-    };
+    reject_transformed_operand("raked_product", block);
+    reject_transformed_operand("raked_product", tiler);
     return make_layout(
         raked_product_shape(block, tiler),
         raked_product_stride(block, tiler),
@@ -382,6 +389,7 @@ pub fn raked_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
 }
 
 pub fn coshape(l: anytype) usize {
+    if (int_tuple.size(l.shape) == 0) return 0;
     return coshape_for(l.shape, l.stride);
 }
 
@@ -392,12 +400,14 @@ fn coshape_for(shp: anytype, strd: anytype) usize {
 fn coshape_extent(shp: anytype, strd: anytype) usize {
     if (comptime int_tuple.is_tuple(@TypeOf(shp))) {
         var result: usize = 0;
-        inline for (0..comptime int_tuple.rank(@TypeOf(shp))) |i| {
+        const R = comptime int_tuple.rank(@TypeOf(shp));
+        inline for (0..R) |i| {
             result += coshape_extent(shp[i], strd[i]);
         }
         return result;
     }
     const s = @as(isize, @intCast(numeric.value(shp)));
+    if (s == 0) return 0;
     const d = if (comptime is_scaled_basis(@TypeOf(strd)))
         @as(isize, @intCast(numeric.value(strd.value)))
     else
@@ -1166,6 +1176,8 @@ fn stride_type_value(comptime T: type) comptime_int {
 }
 
 fn LogicalDivideType(comptime LayoutT: type, comptime TilerT: type) type {
+    reject_transformed_operand_type("logical_divide", LayoutT);
+    reject_transformed_operand_type("logical_divide", TilerT);
     return @TypeOf(logical_divide_impl(@as(LayoutT, undefined), @as(TilerT, undefined)));
 }
 
@@ -1180,6 +1192,8 @@ fn logical_divide_impl(l: anytype, tiler: anytype) @TypeOf(make_layout(
 }
 
 fn logical_divide_shape(l: anytype, tiler: anytype) LogicalDivideShapeType(@TypeOf(l), @TypeOf(tiler)) {
+    reject_transformed_operand("logical_divide", l);
+    reject_transformed_operand("logical_divide", tiler);
     const ShapeT = @TypeOf(l.shape);
     if (comptime int_tuple.is_tuple(ShapeT)) {
         if (comptime !int_tuple.is_tuple(@TypeOf(tiler))) {
@@ -1435,6 +1449,8 @@ fn logical_product_shape(block: anytype, tiler: anytype) @TypeOf(.{
     block.shape,
     complement_shape_for_product(block, tiler),
 }) {
+    reject_transformed_operand("logical_product", block);
+    reject_transformed_operand("logical_product", tiler);
     comptime if (int_tuple.is_tuple(@TypeOf(tiler.shape))) {
         @compileError("logical_product currently supports scalar tilers");
     };
@@ -1480,6 +1496,8 @@ fn blocked_product_shape(block: anytype, tiler: anytype) @TypeOf(.{
     .{ block.shape[0], tiler.shape },
     .{ block.shape[1], numeric._1 },
 }) {
+    reject_transformed_operand("blocked_product", block);
+    reject_transformed_operand("blocked_product", tiler);
     comptime if (!int_tuple.is_tuple(@TypeOf(block.shape)) or int_tuple.rank(@TypeOf(block.shape)) != 2 or int_tuple.is_tuple(@TypeOf(tiler.shape))) {
         @compileError("blocked_product currently supports rank-2 block and scalar tiler");
     };
@@ -1506,6 +1524,8 @@ fn raked_product_shape(block: anytype, tiler: anytype) @TypeOf(.{
     .{ tiler.shape, block.shape[0] },
     .{ numeric._1, block.shape[1] },
 }) {
+    reject_transformed_operand("raked_product", block);
+    reject_transformed_operand("raked_product", tiler);
     comptime if (!int_tuple.is_tuple(@TypeOf(block.shape)) or int_tuple.rank(@TypeOf(block.shape)) != 2 or int_tuple.is_tuple(@TypeOf(tiler.shape))) {
         @compileError("raked_product currently supports rank-2 block and scalar tiler");
     };
@@ -2161,6 +2181,14 @@ test "composed cosize uses max over actual rhs domain" {
     const c = composition(lhs, rhs);
 
     try std.testing.expectEqual(@as(usize, 11), c.cosize());
+}
+
+test "coshape of empty layout is zero" {
+    const zero: usize = 0;
+    const l = make_layout(zero, @as(usize, 1));
+
+    try std.testing.expectEqual(@as(usize, 0), l.size());
+    try std.testing.expectEqual(@as(usize, 0), coshape(l));
 }
 
 test "blocked_product supports runtime block shape" {
