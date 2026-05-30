@@ -6,18 +6,18 @@ const underscore = @import("underscore.zig");
 pub fn SliceResultType(comptime LayoutT: type, comptime CoordT: type) type {
     const ShapeT = LayoutT.ShapeType;
     const StrideT = LayoutT.StrideType;
-    
-    // We can't easily instantiate them here if they are complex, 
+
+    // We can't easily instantiate them here if they are complex,
     // but we can use their types with 'undefined' if they are structs.
     // A better way is to use a helper that only operates on types.
     const result_shape_type = @TypeOf(wrap_static_ints(slice_value(@as(CoordT, undefined), @as(ShapeT, undefined))));
     const result_stride_type = @TypeOf(wrap_static_ints(slice_value(@as(CoordT, undefined), @as(StrideT, undefined))));
-    
+
     const NewLayoutT = Layout(result_shape_type, result_stride_type);
-    return struct { 
+    return struct {
         pub const LayoutType = NewLayoutT;
-        layout: NewLayoutT, 
-        offset: usize 
+        layout: NewLayoutT,
+        offset: usize,
     };
 }
 
@@ -121,9 +121,9 @@ pub fn wrap_static_ints(val: anytype) @TypeOf(blk: {
         const R = comptime int_tuple.rank(T);
         if (R == 0) break :blk .{};
         if (R == 1) break :blk .{wrap_static_ints(val[0])};
-        if (R == 2) break :blk .{wrap_static_ints(val[0]), wrap_static_ints(val[1])};
-        if (R == 3) break :blk .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2])};
-        if (R == 4) break :blk .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]), wrap_static_ints(val[3])};
+        if (R == 2) break :blk .{ wrap_static_ints(val[0]), wrap_static_ints(val[1]) };
+        if (R == 3) break :blk .{ wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]) };
+        if (R == 4) break :blk .{ wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]), wrap_static_ints(val[3]) };
         @compileError("wrap_static_ints supports rank up to 4");
     } else {
         break :blk val;
@@ -136,9 +136,9 @@ pub fn wrap_static_ints(val: anytype) @TypeOf(blk: {
         const R = comptime int_tuple.rank(T);
         if (R == 0) return .{};
         if (R == 1) return .{wrap_static_ints(val[0])};
-        if (R == 2) return .{wrap_static_ints(val[0]), wrap_static_ints(val[1])};
-        if (R == 3) return .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2])};
-        if (R == 4) return .{wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]), wrap_static_ints(val[3])};
+        if (R == 2) return .{ wrap_static_ints(val[0]), wrap_static_ints(val[1]) };
+        if (R == 3) return .{ wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]) };
+        if (R == 4) return .{ wrap_static_ints(val[0]), wrap_static_ints(val[1]), wrap_static_ints(val[2]), wrap_static_ints(val[3]) };
         @compileError("wrap_static_ints supports rank up to 4");
     } else {
         return val;
@@ -585,7 +585,7 @@ fn min_abs_stride(strd: anytype) usize {
         return min_s;
     }
     const v = numeric.value(strd);
-    // Handle both static and runtime integers. 
+    // Handle both static and runtime integers.
     // If it's a signed integer, we want its absolute value.
     const iv: isize = @intCast(v);
     return if (iv >= 0) @as(usize, @intCast(iv)) else @as(usize, @intCast(-iv));
@@ -2056,7 +2056,7 @@ fn dice_rank(comptime CoordT: type) usize {
 fn slice_offset(coord: anytype, shp: anytype, strd: anytype) usize {
     const CoordT = @TypeOf(coord);
     const StrideT = @TypeOf(strd);
-    
+
     if (comptime int_tuple.is_tuple(CoordT)) {
         var result: usize = 0;
         inline for (0..comptime int_tuple.rank(CoordT)) |i| {
@@ -2066,9 +2066,9 @@ fn slice_offset(coord: anytype, shp: anytype, strd: anytype) usize {
     } else if (comptime underscore.is_underscore(CoordT)) {
         return 0;
     } else {
-        // Coordinate is a scalar. 
+        // Coordinate is a scalar.
         if (comptime int_tuple.is_tuple(StrideT)) {
-            // Linear index into a nested shape. 
+            // Linear index into a nested shape.
             // We use a temporary layout to perform the mapping.
             const L = Layout(@TypeOf(shp), @TypeOf(strd));
             const temp_l = L{ .shape = shp, .stride = strd };
@@ -2118,14 +2118,16 @@ pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
         pub const StrideType = RhsT.StrideType;
 
         pub fn init(l: LhsT, r: RhsT) Self {
-            return .{ 
-                .lhs = l, 
+            return .{
+                .lhs = l,
                 .rhs = r,
                 .shape = r.shape,
                 .stride = r.stride,
             };
         }
-        pub fn size(self: Self) usize { return self.rhs.size(); }
+        pub fn size(self: Self) usize {
+            return self.rhs.size();
+        }
         pub fn cosize(self: Self) usize {
             const sz = self.size();
             if (sz == 0) return 0;

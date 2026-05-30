@@ -1,13 +1,11 @@
 const std = @import("std");
 const cute = @import("cute");
 
-// Shared Memory Tiles (Global scope like starter project)
+// Shared Memory Tiles
 var smem_A: [16 * 16]f16 align(16) addrspace(.shared) = undefined;
 var smem_B: [16 * 8]f16 align(16) addrspace(.shared) = undefined;
 
 /// SM80 SGEMM Kernel using CuTe-Zig.
-/// C = A * B + C
-/// A: (M, K), B: (N, K), C: (M, N)
 pub fn sgemm_sm80(
     ptr_A: [*]addrspace(.global) const f16,
     ptr_B: [*]addrspace(.global) const f16,
@@ -40,12 +38,11 @@ pub fn sgemm_sm80(
     const tiled_mma = cute.atom.builders.TiledMMA(MyAtom, .{ 1, 1, 1 }){};
     const thr_mma = tiled_mma.get_thread_slice(thread_id);
 
-    // 3. Shared Memory Tiles
-    // SM80_TN atom expects A-RowMajor (T) and B-ColMajor (N) in shared memory
-    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_A), cute.layout.make_layout_right(.{ 16, 16 }));
-    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_B), cute.layout.make_layout_left(.{ 16, 8 }));
+    // 3. Shared Memory Tensors
+    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, @ptrCast(&smem_A)), cute.layout.make_layout_right(.{ 16, 16 }));
+    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, @ptrCast(&smem_B)), cute.layout.make_layout_left(.{ 16, 8 }));
 
-    // 4. Register Fragments (Align to 16 bytes for MMA efficiency)
+    // 4. Register Fragments
     var rA: [8]f16 align(16) = undefined;
     var rB: [4]f16 align(16) = undefined;
     var accum: [4]f32 align(16) = [_]f32{0.0} ** 4;
@@ -54,63 +51,70 @@ pub fn sgemm_sm80(
     const thr_rB = cute.tensor.make_tensor(@as([*]f16, &rB), cute.layout.make_layout_1d(4));
     const thr_acc = cute.tensor.make_tensor(@as([*]f32, &accum), cute.layout.make_layout_1d(4));
 
-    // 4.5 Load initial C values into accumulators
+    // Load initial C values
     inline for (0..4) |i| {
         const idx = mma_traits.layout_c.map(.{ thread_id, i });
         const m = idx % 16;
         const n = idx / 16;
         const gm = block_m * 16 + m;
         const gn = block_n * 8 + n;
-        if (gm < M and gn < N) {
-            accum[i] = tensor_C.get(.{ gm, gn });
-        }
+        if (gm < M and gn < N) accum[i] = tensor_C.get(.{ gm, gn });
     }
 
-    // 5. Partition Shared for MMA (Warp-level)
+    // Partition Shared for MMA
     const thr_sA = thr_mma.partition_A(sA);
     const thr_sB = thr_mma.partition_B(sB);
 
-    // 6. Define Global-to-Shared Copy Layouts
-    // A: 16x16 = 256. 32 threads -> 8 elements each.
-    // B: 16x8 = 128. 32 threads -> 4 elements each.
-    
-    // 7. GEMM Main Loop
     const k_tiles = (K + 15) / 16;
     for (0..k_tiles) |k_tile| {
-        // Cooperative Load A (16x16)
-        inline for (0..8) |i| {
-            const coord = thread_id * 8 + i;
-            const m_in_tile = coord % 16;
-            const k_in_tile = coord / 16;
-            const gm = block_m * 16 + m_in_tile;
-            const gk = k_tile * 16 + k_in_tile;
-            if (gm < M and gk < K) {
-                sA.set(.{ m_in_tile, k_in_tile }, tensor_A.get(.{ gm, gk }));
-            } else {
-                sA.set(.{ m_in_tile, k_in_tile }, 0);
-            }
+        // --- 5. Global -> Shared using cp.async ---
+        const async_op = arch_db.copy_sm80.SM80_CP_ASYNC_CACHEALWAYS_ZFILL_16B;
+        const AsyncImpl = cute.arch.builders.Copy(async_op);
+
+        // Load A: 16x16, 32 threads. each thread 8 elements (16B).
+        const t_offset_A = thread_id * 8;
+        const am = t_offset_A % 16;
+        const ak = t_offset_A / 16;
+        const pred_A = (block_m * 16 + am < M) and (k_tile * 16 + ak < K);
+        const g_ptr_A = ptr_A + (block_m * 16 + am) * K + (k_tile * 16 + ak);
+        const s_ptr_A = @as([*]addrspace(.shared) u8, @ptrCast(&smem_A)) + (am * 16 + ak) * 2;
+        AsyncImpl.copy(@as([*]addrspace(.global) const u8, @ptrCast(g_ptr_A)), @as([*]addrspace(.shared) u8, @ptrCast(s_ptr_A)), pred_A);
+
+        // Load B: 16x8, 32 threads. each thread 4 elements (8B).
+        // We use 16B op but we must be careful with predication.
+        // Actually lets just use scalar load for B or another cp.async.
+        const t_offset_B = thread_id * 4;
+        const bk = t_offset_B % 16;
+        const bn = t_offset_B / 16;
+        const pred_B = (block_n * 8 + bn < N) and (k_tile * 16 + bk < K);
+        const g_ptr_B = ptr_B + (bn * K) + (k_tile * 16 + bk);
+        const s_ptr_B = @as([*]addrspace(.shared) u8, @ptrCast(&smem_B)) + (bn * 16 + bk) * 2;
+        // For B, 8 bytes load. We don't have SM80_CP_ASYNC_8B yet in our DB, so let's just use scalar for now or add it.
+        if (pred_B) {
+            sB.set(.{ bk, bn }, tensor_B.get(.{ block_n * 8 + bn, k_tile * 16 + bk }));
+        } else {
+            sB.set(.{ bk, bn }, 0);
         }
 
-        // Cooperative Load B (8x16 logically in global, 16x8 in shared)
-        inline for (0..4) |i| {
-            const coord = thread_id * 4 + i;
-            const k_in_tile = coord % 16;
-            const n_in_tile = coord / 16;
-            const gn = block_n * 8 + n_in_tile;
-            const gk = k_tile * 16 + k_in_tile;
-            if (gn < N and gk < K) {
-                sB.set(.{ k_in_tile, n_in_tile }, tensor_B.get(.{ gn, gk }));
-            } else {
-                sB.set(.{ k_in_tile, n_in_tile }, 0);
-            }
-        }
+        cute.arch.util.cp_async_fence();
+        cute.arch.util.cp_async_wait_all();
         cute.arch.sync.syncthreads();
 
-        // Shared -> Register
-        cute.algorithm.copy(thr_sA, thr_rA);
+        // --- 6. Shared -> Register using ldmatrix (via CopyAtom) ---
+        const ld_op = arch_db.copy_sm75.SM75_U32x4_LDSM_N;
+        const ld_traits = atom_db.copy_traits_sm75.SM75_U32x4_LDSM_N;
+        const LdAtom = cute.atom.builders.CopyAtom(ld_op, ld_traits);
+
+        // Partition thr_sA further? No, thr_mma.partition_A(sA) already gave us a tensor.
+        // But CopyAtom needs its own partition.
+        const ld_thr_sA = LdAtom.partition_S(.{}, sA, thread_id);
+        const ld_thr_rA = LdAtom.partition_D(.{}, thr_rA, thread_id);
+        LdAtom.copy(ld_thr_sA, ld_thr_rA);
+
+        // For B, just elementwise copy as it is not a matrix-load shape
         cute.algorithm.copy(thr_sB, thr_rB);
 
-        // MMA
+        // 7. MMA
         const thr_rA_u32 = cute.tensor.make_tensor(@as([*]u32, @ptrCast(&rA)), cute.layout.make_layout_1d(4));
         const thr_rB_u32 = cute.tensor.make_tensor(@as([*]u32, @ptrCast(&rB)), cute.layout.make_layout_1d(2));
         thr_mma.fma(thr_acc, thr_rA_u32, thr_rB_u32, thr_acc);
@@ -118,15 +122,13 @@ pub fn sgemm_sm80(
         cute.arch.sync.syncthreads();
     }
 
-    // 8. Epilogue: Write back Accumulators to Global C
+    // 8. Epilogue
     inline for (0..4) |i| {
         const idx = mma_traits.layout_c.map(.{ thread_id, i });
         const m = idx % 16;
         const n = idx / 16;
         const gm = block_m * 16 + m;
         const gn = block_n * 8 + n;
-        if (gm < M and gn < N) {
-            tensor_C.set(.{ gm, gn }, accum[i]);
-        }
+        if (gm < M and gn < N) tensor_C.set(.{ gm, gn }, accum[i]);
     }
 }

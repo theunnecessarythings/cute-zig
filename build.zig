@@ -1,5 +1,24 @@
 const std = @import("std");
 
+fn addPtxasCheck(b_ptr: *std.Build, dep_mod: *std.Build.Module, src: []const u8, sm: []const u8) *std.Build.Step.Run {
+    const obj = b_ptr.addObject(.{
+        .name = std.fs.path.stem(src),
+        .root_module = b_ptr.createModule(.{
+            .root_source_file = b_ptr.path(src),
+            .target = b_ptr.resolveTargetQuery(std.Build.parseTargetQuery(.{
+                .arch_os_abi = "nvptx64-cuda-none",
+                .cpu_features = b_ptr.fmt("{s}+ptx80", .{sm}),
+            }) catch unreachable),
+            .optimize = .ReleaseFast,
+        }),
+    });
+    obj.root_module.addImport("cute", dep_mod);
+
+    const ptxas_cmd = b_ptr.addSystemCommand(&.{ "ptxas", b_ptr.fmt("-arch={s}", .{sm}) });
+    ptxas_cmd.addFileArg(obj.getEmittedAsm());
+    return ptxas_cmd;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -124,7 +143,7 @@ pub fn build(b: *std.Build) void {
     const run_atom_tests = b.addRunArtifact(atom_tests);
     const run_layout_tests = b.addRunArtifact(layout_tests);
     const run_numeric_tests = b.addRunArtifact(numeric_tests);
-    
+
     const arch_check_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/cute/arch/check.zig"),
@@ -134,7 +153,7 @@ pub fn build(b: *std.Build) void {
     });
     arch_check_tests.root_module.addImport("cute", cute_mod);
     const run_arch_check_tests = b.addRunArtifact(arch_check_tests);
-    
+
     const check_atom_traits = b.addSystemCommand(&.{
         "python3",
         b.pathFromRoot("tools/check_atom_traits.py"),
@@ -142,22 +161,10 @@ pub fn build(b: *std.Build) void {
         "--strict",
     });
 
-    const device_asm_check = b.addObject(.{
-        .name = "device_asm_check",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/device/sm75_ldmatrix_check.zig"),
-            .target = b.resolveTargetQuery(std.Build.parseTargetQuery(.{
-                .arch_os_abi = "nvptx64-cuda-none",
-                .cpu_features = "sm_90",
-            }) catch unreachable),
-            .optimize = .ReleaseFast,
-        }),
-    });
-    device_asm_check.root_module.addImport("cute", cute_mod);
-    
-    const ptxas_cmd = b.addSystemCommand(&.{ "ptxas", "-arch=sm_90" });
-    ptxas_cmd.addFileArg(device_asm_check.getEmittedAsm());
-    
+    const ptx_sm75_mov = addPtxasCheck(b, cute_mod, "tests/device/sm75_movmatrix_check.zig", "sm_75");
+    const ptx_sm75_ld = addPtxasCheck(b, cute_mod, "tests/device/sm75_ldmatrix_check.zig", "sm_75");
+    const ptx_sm90_st = addPtxasCheck(b, cute_mod, "tests/device/sm90_stmatrix_check.zig", "sm_90");
+
     const test_step = b.step("test", "Run Zig parity and module tests");
     test_step.dependOn(&run_parity_tests.step);
     test_step.dependOn(&run_atom_tests.step);
@@ -165,7 +172,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_numeric_tests.step);
     test_step.dependOn(&run_arch_check_tests.step);
     test_step.dependOn(&check_atom_traits.step);
-    test_step.dependOn(&ptxas_cmd.step);
+    test_step.dependOn(&ptx_sm75_mov.step);
+    test_step.dependOn(&ptx_sm75_ld.step);
+    test_step.dependOn(&ptx_sm90_st.step);
 
     const compile_fail_cases = [_]struct {
         source: []const u8,

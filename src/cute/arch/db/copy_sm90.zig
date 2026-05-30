@@ -1,7 +1,7 @@
 // AUTO-GENERATED CuTe-Zig Instruction Database
 const types = @import("../types.zig");
 
-pub const SM90_U32x1_STSM_N = types.CopyInst {
+pub const SM90_U32x1_STSM_N = types.CopyInst{
     .name = "SM90_U32x1_STSM_N",
     .sm = 90,
     .s_regs = .{ .ty = u32, .count = 1 },
@@ -13,7 +13,7 @@ pub const SM90_U32x1_STSM_N = types.CopyInst {
     .dst_space = .shared,
 };
 
-pub const SM90_U32x2_STSM_N = types.CopyInst {
+pub const SM90_U32x2_STSM_N = types.CopyInst{
     .name = "SM90_U32x2_STSM_N",
     .sm = 90,
     .s_regs = .{ .ty = u32, .count = 2 },
@@ -25,7 +25,7 @@ pub const SM90_U32x2_STSM_N = types.CopyInst {
     .dst_space = .shared,
 };
 
-pub const SM90_U32x4_STSM_N = types.CopyInst {
+pub const SM90_U32x4_STSM_N = types.CopyInst{
     .name = "SM90_U32x4_STSM_N",
     .sm = 90,
     .s_regs = .{ .ty = u32, .count = 4 },
@@ -37,7 +37,7 @@ pub const SM90_U32x4_STSM_N = types.CopyInst {
     .dst_space = .shared,
 };
 
-pub const SM90_U16x2_STSM_T = types.CopyInst {
+pub const SM90_U16x2_STSM_T = types.CopyInst{
     .name = "SM90_U16x2_STSM_T",
     .sm = 90,
     .s_regs = .{ .ty = u32, .count = 1 },
@@ -49,7 +49,7 @@ pub const SM90_U16x2_STSM_T = types.CopyInst {
     .dst_space = .shared,
 };
 
-pub const SM90_U16x4_STSM_T = types.CopyInst {
+pub const SM90_U16x4_STSM_T = types.CopyInst{
     .name = "SM90_U16x4_STSM_T",
     .sm = 90,
     .s_regs = .{ .ty = u32, .count = 2 },
@@ -61,7 +61,7 @@ pub const SM90_U16x4_STSM_T = types.CopyInst {
     .dst_space = .shared,
 };
 
-pub const SM90_U16x8_STSM_T = types.CopyInst {
+pub const SM90_U16x8_STSM_T = types.CopyInst{
     .name = "SM90_U16x8_STSM_T",
     .sm = 90,
     .s_regs = .{ .ty = u32, .count = 4 },
@@ -72,4 +72,3 @@ pub const SM90_U16x8_STSM_T = types.CopyInst {
     .src_space = .register,
     .dst_space = .shared,
 };
-

@@ -58,19 +58,17 @@ pub fn main() !void {
 
     std.log.info("Launching Kernel...", .{});
     const config = cuda.LaunchConfig{
-        .grid_dim = .{ 
-            .x = @intCast((N + 7) / 8), 
-            .y = @intCast((M + 15) / 16), 
-            .z = 1 
-        },
+        .grid_dim = .{ .x = @intCast((N + 7) / 8), .y = @intCast((M + 15) / 16), .z = 1 },
         .block_dim = .{ .x = 32, .y = 1, .z = 1 }, // 32 threads for one warp (MMA atom is warp-level)
     };
-    
+
     kernel.launch(config, .{
         d_A.ptr,
         d_B.ptr,
         d_C.ptr,
-        M, N, K,
+        M,
+        N,
+        K,
     });
 
     std.log.info("Copying Result back to Host...", .{});
@@ -90,7 +88,7 @@ pub fn main() !void {
     } else {
         std.log.err("FAILURE! Result mismatch.", .{});
         // Print some results
-        std.log.info("Sample Result: C[0] = {d}, Expected = {d}", .{h_C[0], h_C_ref[0]});
+        std.log.info("Sample Result: C[0] = {d}, Expected = {d}", .{ h_C[0], h_C_ref[0] });
         return error.VerificationFailed;
     }
 }

@@ -7,5 +7,5 @@ pub fn panic(msg: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) 
     unreachable;
 }
 
-// Device-side library entry point. 
+// Device-side library entry point.
 // Add actual kernels using the `cute` namespace here.

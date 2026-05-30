@@ -57,7 +57,7 @@ pub fn depth(comptime T: type) usize {
 fn GetType(comptime T: type, comptime Is: anytype, comptime start: usize) type {
     const indices = if (comptime is_tuple(@TypeOf(Is))) Is else .{Is};
     if (start >= indices.len) return T;
-    
+
     if (comptime is_tuple(T)) {
         const I = indices[start];
         const ChildT = switch (@typeInfo(T)) {
@@ -79,7 +79,7 @@ pub fn get(t: anytype, comptime Is: anytype) GetType(@TypeOf(t), Is, 0) {
 fn get_recursive(t: anytype, comptime Is: anytype, comptime start: usize) GetType(@TypeOf(t), Is, start) {
     const T = @TypeOf(t);
     const indices = if (comptime is_tuple(@TypeOf(Is))) Is else .{Is};
-    
+
     if (start >= indices.len) return t;
 
     const I = indices[start];
@@ -739,7 +739,7 @@ test "shape profile and divisibility basics" {
     try std.testing.expectEqual(@as(usize, 3), runtime_div[2]);
 
     try std.testing.expect(weakly_congruent(.{ numeric._2, numeric._3 }, .{ numeric._4, numeric._5 }));
-    try std.testing.expect(!weakly_congruent(.{ numeric._2, .{ numeric._3 } }, .{ numeric._2, numeric._3 }));
+    try std.testing.expect(!weakly_congruent(.{ numeric._2, .{numeric._3} }, .{ numeric._2, numeric._3 }));
     try std.testing.expect(compatible(.{ numeric._2, numeric._3 }, .{ numeric._2, numeric._3 }));
 
     const nested = .{ numeric._2, .{ numeric._3, numeric._4 } };
@@ -749,8 +749,8 @@ test "shape profile and divisibility basics" {
     try std.testing.expectEqual(@as(usize, 2), each[0]);
     try std.testing.expectEqual(@as(usize, 12), each[1]);
 
-    try std.testing.expect(congruent(.{ numeric._2, .{ numeric._3 } }, .{ numeric._4, .{ numeric._5 } }));
-    try std.testing.expect(!congruent(.{ numeric._2, .{ numeric._3 } }, .{ numeric._4, numeric._5 }));
+    try std.testing.expect(congruent(.{ numeric._2, .{numeric._3} }, .{ numeric._4, .{numeric._5} }));
+    try std.testing.expect(!congruent(.{ numeric._2, .{numeric._3} }, .{ numeric._4, numeric._5 }));
     try std.testing.expect(evenly_divides(.{ numeric._8, numeric._16 }, .{ numeric._4, numeric._8 }));
     try std.testing.expect(evenly_divides(.{ numeric._8, numeric._16 }, numeric._4));
 }

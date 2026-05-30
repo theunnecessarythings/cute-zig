@@ -1,7 +1,7 @@
 // AUTO-GENERATED CuTe-Zig Instruction Database
 const types = @import("../types.zig");
 
-pub const SM75_U32x1_LDSM_N = types.CopyInst {
+pub const SM75_U32x1_LDSM_N = types.CopyInst{
     .name = "SM75_U32x1_LDSM_N",
     .sm = 75,
     .s_regs = .{ .ty = u128, .count = 1 },
@@ -13,7 +13,7 @@ pub const SM75_U32x1_LDSM_N = types.CopyInst {
     .dst_space = .register,
 };
 
-pub const SM75_U32x2_LDSM_N = types.CopyInst {
+pub const SM75_U32x2_LDSM_N = types.CopyInst{
     .name = "SM75_U32x2_LDSM_N",
     .sm = 75,
     .s_regs = .{ .ty = u128, .count = 1 },
@@ -25,7 +25,7 @@ pub const SM75_U32x2_LDSM_N = types.CopyInst {
     .dst_space = .register,
 };
 
-pub const SM75_U32x4_LDSM_N = types.CopyInst {
+pub const SM75_U32x4_LDSM_N = types.CopyInst{
     .name = "SM75_U32x4_LDSM_N",
     .sm = 75,
     .s_regs = .{ .ty = u128, .count = 1 },
@@ -37,7 +37,7 @@ pub const SM75_U32x4_LDSM_N = types.CopyInst {
     .dst_space = .register,
 };
 
-pub const SM75_U16x2_LDSM_T = types.CopyInst {
+pub const SM75_U16x2_LDSM_T = types.CopyInst{
     .name = "SM75_U16x2_LDSM_T",
     .sm = 75,
     .s_regs = .{ .ty = u128, .count = 1 },
@@ -49,7 +49,7 @@ pub const SM75_U16x2_LDSM_T = types.CopyInst {
     .dst_space = .register,
 };
 
-pub const SM75_U16x4_LDSM_T = types.CopyInst {
+pub const SM75_U16x4_LDSM_T = types.CopyInst{
     .name = "SM75_U16x4_LDSM_T",
     .sm = 75,
     .s_regs = .{ .ty = u128, .count = 1 },
@@ -61,7 +61,7 @@ pub const SM75_U16x4_LDSM_T = types.CopyInst {
     .dst_space = .register,
 };
 
-pub const SM75_U16x8_LDSM_T = types.CopyInst {
+pub const SM75_U16x8_LDSM_T = types.CopyInst{
     .name = "SM75_U16x8_LDSM_T",
     .sm = 75,
     .s_regs = .{ .ty = u128, .count = 1 },
@@ -73,7 +73,7 @@ pub const SM75_U16x8_LDSM_T = types.CopyInst {
     .dst_space = .register,
 };
 
-pub const SM75_U32x1_MOVM_T = types.CopyInst {
+pub const SM75_U32x1_MOVM_T = types.CopyInst{
     .kind = .reg_to_reg,
     .src_space = .register,
     .dst_space = .register,
@@ -84,4 +84,3 @@ pub const SM75_U32x1_MOVM_T = types.CopyInst {
     .ptx = "movmatrix.sync.aligned.m8n8.trans.b16 %[d0], %[s0];",
     .is_async = false,
 };
-

@@ -66,6 +66,12 @@ pub const AddressSpace = enum {
     descriptor,
 };
 
+pub const CopyPredication = enum {
+    none,
+    instruction_guard,
+    cp_async_zero_fill,
+};
+
 pub const CopyInst = struct {
     name: []const u8,
     sm: u16,
@@ -76,4 +82,6 @@ pub const CopyInst = struct {
     d_regs: RegSpec,
     ptx: []const u8,
     is_async: bool = false,
+    predication: CopyPredication = .instruction_guard,
+    copy_bytes: ?u8 = null,
 };

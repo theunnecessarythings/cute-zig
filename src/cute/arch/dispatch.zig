@@ -1363,8 +1363,7 @@ pub inline fn copy_u1281_u321(comptime ptx: []const u8, src: [1]u128, dst: *[1]u
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1374,8 +1373,7 @@ pub inline fn copy_u1281_u322(comptime ptx: []const u8, src: [1]u128, dst: *[2]u
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
     dst[1] = res.d1;
 }
@@ -1386,8 +1384,7 @@ pub inline fn copy_u1281_u324(comptime ptx: []const u8, src: [1]u128, dst: *[4]u
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
     dst[1] = res.d1;
     dst[2] = res.d2;
@@ -1400,8 +1397,7 @@ pub inline fn copy_u321_u1281(comptime ptx: []const u8, src: [1]u32, dst: *[1]u1
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1411,8 +1407,7 @@ pub inline fn copy_u321_u321(comptime ptx: []const u8, src: [1]u32, dst: *[1]u32
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1422,8 +1417,7 @@ pub inline fn copy_u321_u322(comptime ptx: []const u8, src: [1]u32, dst: *[2]u32
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
     dst[1] = res.d1;
 }
@@ -1434,8 +1428,7 @@ pub inline fn copy_u321_u324(comptime ptx: []const u8, src: [1]u32, dst: *[4]u32
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
     dst[1] = res.d1;
     dst[2] = res.d2;
@@ -1448,8 +1441,7 @@ pub inline fn copy_u321_u328(comptime ptx: []const u8, src: [1]u32, dst: *[8]u32
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
     dst[1] = res.d1;
     dst[2] = res.d2;
@@ -1466,8 +1458,7 @@ pub inline fn copy_u321_u3216(comptime ptx: []const u8, src: [1]u32, dst: *[16]u
         : [ret] "=r" (-> Out),
         : [s0] "r" (src[0]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
     dst[1] = res.d1;
     dst[2] = res.d2;
@@ -1493,8 +1484,7 @@ pub inline fn copy_u322_u1281(comptime ptx: []const u8, src: [2]u32, dst: *[1]u1
         : [s0] "r" (src[0]),
           [s1] "r" (src[1]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1505,8 +1495,7 @@ pub inline fn copy_u322_u321(comptime ptx: []const u8, src: [2]u32, dst: *[1]u32
         : [s0] "r" (src[0]),
           [s1] "r" (src[1]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1519,8 +1508,7 @@ pub inline fn copy_u324_u1281(comptime ptx: []const u8, src: [4]u32, dst: *[1]u1
           [s2] "r" (src[2]),
           [s3] "r" (src[3]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1533,8 +1521,7 @@ pub inline fn copy_u324_u321(comptime ptx: []const u8, src: [4]u32, dst: *[1]u32
           [s2] "r" (src[2]),
           [s3] "r" (src[3]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1551,8 +1538,7 @@ pub inline fn copy_u328_u321(comptime ptx: []const u8, src: [8]u32, dst: *[1]u32
           [s6] "r" (src[6]),
           [s7] "r" (src[7]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }
 
@@ -1577,7 +1563,6 @@ pub inline fn copy_u3216_u321(comptime ptx: []const u8, src: [16]u32, dst: *[1]u
           [s14] "r" (src[14]),
           [s15] "r" (src[15]),
           [p] "b" (pred),
-        : .{ .memory = true }
-    );
+        : .{ .memory = true });
     dst[0] = res.d0;
 }

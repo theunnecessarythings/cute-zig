@@ -264,7 +264,7 @@ test "sliced swizzle layout cosize includes base offset" {
 
     const base = layout.make_layout(@as(usize, 8), @as(usize, 1));
     const sw = make_swizzle_layout(base, Swizzle(1, 0, 2){});
-    
+
     // Slice element 4 (offset 4)
     const result = sw.slice_and_offset(numeric._4);
     const sliced = result.layout;
