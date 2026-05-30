@@ -2,8 +2,8 @@ const std = @import("std");
 const cute = @import("cute");
 
 // Shared Memory Tiles (Global scope like starter project)
-var smem_A: [16 * 16]f16 addrspace(.shared) = undefined;
-var smem_B: [8 * 16]f16 addrspace(.shared) = undefined;
+var smem_A: [16 * 16]f16 align(16) addrspace(.shared) = undefined;
+var smem_B: [16 * 8]f16 align(16) addrspace(.shared) = undefined;
 
 /// SM80 SGEMM Kernel using CuTe-Zig.
 /// C = A * B + C
@@ -40,9 +40,10 @@ pub fn sgemm_sm80(
     const tiled_mma = cute.atom.builders.TiledMMA(MyAtom, .{ 1, 1, 1 }){};
     const thr_mma = tiled_mma.get_thread_slice(thread_id);
 
-    // 3. Shared Memory Tiles (Use Column-Major to match Atom TV-Layouts)
-    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_A), cute.layout.make_layout_col_major(16, 16));
-    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_B), cute.layout.make_layout_col_major(16, 8));
+    // 3. Shared Memory Tiles
+    // SM80_TN atom expects A-ColMajor and B-RowMajor in shared memory
+    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_A), cute.layout.make_layout_left(.{ 16, 16 }));
+    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_B), cute.layout.make_layout_right(.{ 16, 8 }));
 
     // 4. Register Fragments (Align to 16 bytes for MMA efficiency)
     var rA: [8]f16 align(16) = undefined;
@@ -71,7 +72,7 @@ pub fn sgemm_sm80(
 
     // 6. Define Global-to-Shared Copy Layouts
     // A: 16x16 = 256. 32 threads -> 8 elements each.
-    // B: 8x16 = 128. 32 threads -> 4 elements each.
+    // B: 16x8 = 128. 32 threads -> 4 elements each.
     
     // 7. GEMM Main Loop
     const k_tiles = (K + 15) / 16;
@@ -90,15 +91,14 @@ pub fn sgemm_sm80(
             }
         }
 
-        // Cooperative Load B (8x16 logically, stored as 16x8 in sB for MMA)
+        // Cooperative Load B (8x16 logically in global, 16x8 in shared)
         inline for (0..4) |i| {
             const coord = thread_id * 4 + i;
-            const n_in_tile = coord / 16;
             const k_in_tile = coord % 16;
+            const n_in_tile = coord / 16;
             const gn = block_n * 8 + n_in_tile;
             const gk = k_tile * 16 + k_in_tile;
             if (gn < N and gk < K) {
-                // sB is (K, N) logically for the MMA atom
                 sB.set(.{ k_in_tile, n_in_tile }, tensor_B.get(.{ gn, gk }));
             } else {
                 sB.set(.{ k_in_tile, n_in_tile }, 0);
