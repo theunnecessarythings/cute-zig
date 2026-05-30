@@ -50,14 +50,18 @@ fn RegisterCopyWrapper(comptime inst: types.CopyInst) type {
         pub const DRegisters = [inst.d_regs.count]inst.d_regs.ty;
 
         pub inline fn copy(src: SRegisters, dst: *DRegisters, pred: bool) void {
-            const func_name = comptime std.fmt.comptimePrint("copy_{s}{d}_{s}{d}", .{
-                typeName(inst.s_regs.ty), inst.s_regs.count,
-                typeName(inst.d_regs.ty), inst.d_regs.count,
-            });
-            comptime if (!@hasDecl(dispatch, func_name)) {
-                @compileError("Universal Dispatcher missing signature for " ++ inst.name ++ " (looked for " ++ func_name ++ ")");
-            };
-            @field(dispatch, func_name)(inst.ptx, src, dst, pred);
+            _ = pred;
+            const count = inst.d_regs.count;
+            if (count == 1 and inst.s_regs.count == 1) {
+                var d0: inst.d_regs.ty = undefined;
+                asm volatile (inst.ptx
+                    : [d0] "=r" (d0),
+                    : [s0] "r" (src[0]),
+                );
+                dst[0] = d0;
+            } else {
+                @compileError("Unsupported RegisterCopyWrapper size");
+            }
         }
     };
 }

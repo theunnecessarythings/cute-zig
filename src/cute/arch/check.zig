@@ -9,12 +9,18 @@ fn check_copy_inst(comptime inst: types.CopyInst) void {
                 @compileError(inst.name ++ " is smem_to_reg without load PTX");
             if (inst.src_space != .shared or inst.dst_space != .register)
                 @compileError(inst.name ++ " has inconsistent address spaces");
+            if (std.mem.indexOf(u8, inst.ptx, "[%[s0]]") == null)
+                @compileError(inst.name ++ " must use named shared-memory source operand");
+            if (std.mem.indexOf(u8, inst.ptx, "}, [%[s0]];") == null)
+                @compileError(inst.name ++ " malformed ldmatrix destination/address separator");
         },
         .reg_to_smem => {
             if (std.mem.indexOf(u8, inst.ptx, "stmatrix") == null)
                 @compileError(inst.name ++ " is reg_to_smem without store PTX");
             if (inst.src_space != .register or inst.dst_space != .shared)
                 @compileError(inst.name ++ " has inconsistent address spaces");
+            if (std.mem.indexOf(u8, inst.ptx, "[%[d0]], {") == null)
+                @compileError(inst.name ++ " malformed stmatrix address/source separator");
         },
         .reg_to_reg => {
             if (std.mem.indexOf(u8, inst.ptx, "ldmatrix") != null or

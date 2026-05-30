@@ -142,6 +142,22 @@ pub fn build(b: *std.Build) void {
         "--strict",
     });
 
+    const device_asm_check = b.addObject(.{
+        .name = "device_asm_check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/device/sm75_ldmatrix_check.zig"),
+            .target = b.resolveTargetQuery(std.Build.parseTargetQuery(.{
+                .arch_os_abi = "nvptx64-cuda-none",
+                .cpu_features = "sm_90",
+            }) catch unreachable),
+            .optimize = .ReleaseFast,
+        }),
+    });
+    device_asm_check.root_module.addImport("cute", cute_mod);
+    
+    const ptxas_cmd = b.addSystemCommand(&.{ "ptxas", "-arch=sm_90" });
+    ptxas_cmd.addFileArg(device_asm_check.getEmittedAsm());
+    
     const test_step = b.step("test", "Run Zig parity and module tests");
     test_step.dependOn(&run_parity_tests.step);
     test_step.dependOn(&run_atom_tests.step);
@@ -149,6 +165,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_numeric_tests.step);
     test_step.dependOn(&run_arch_check_tests.step);
     test_step.dependOn(&check_atom_traits.step);
+    test_step.dependOn(&ptxas_cmd.step);
 
     const compile_fail_cases = [_]struct {
         source: []const u8,
