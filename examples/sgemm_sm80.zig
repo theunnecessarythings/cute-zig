@@ -41,9 +41,9 @@ pub fn sgemm_sm80(
     const thr_mma = tiled_mma.get_thread_slice(thread_id);
 
     // 3. Shared Memory Tiles
-    // SM80_TN atom expects A-ColMajor and B-RowMajor in shared memory
-    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_A), cute.layout.make_layout_left(.{ 16, 16 }));
-    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_B), cute.layout.make_layout_right(.{ 16, 8 }));
+    // SM80_TN atom expects A-RowMajor (T) and B-ColMajor (N) in shared memory
+    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_A), cute.layout.make_layout_right(.{ 16, 16 }));
+    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_B), cute.layout.make_layout_left(.{ 16, 8 }));
 
     // 4. Register Fragments (Align to 16 bytes for MMA efficiency)
     var rA: [8]f16 align(16) = undefined;
