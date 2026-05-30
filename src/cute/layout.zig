@@ -1621,21 +1621,34 @@ fn make_stride_scaled_like(shp: anytype, scale: anytype) CompactStrideType(@Type
         }
         return result;
     }
+    if (comptime numeric.is_static_int(ShapeT) and ShapeT.static_value == 1) {
+        return numeric._0;
+    }
     return scale;
 }
 
 fn make_compact_row_major_stride(shp: anytype) CompactRowMajorStrideType(@TypeOf(shp), @TypeOf(numeric._1)) {
+    return make_row_stride_scaled_like(shp, numeric._1);
+}
+
+fn make_row_stride_scaled_like(shp: anytype, scale: anytype) CompactRowMajorStrideType(@TypeOf(shp), @TypeOf(scale)) {
     const ShapeT = @TypeOf(shp);
     if (comptime int_tuple.is_tuple(ShapeT)) {
         const R = comptime int_tuple.rank(ShapeT);
-        var result: CompactRowMajorStrideType(ShapeT, @TypeOf(numeric._1)) = undefined;
+        var result: CompactRowMajorStrideType(ShapeT, @TypeOf(scale)) = undefined;
         inline for (0..R) |i| {
-            const actual_scale = if (i == R - 1) numeric._1 else int_tuple.mul(numeric._1, int_tuple.static_product(int_tuple.take(i + 1, R, shp)));
-            result[i] = make_stride_scaled_like(shp[i], actual_scale);
+            const actual_scale = if (i == R - 1)
+                scale
+            else
+                int_tuple.mul(scale, int_tuple.static_product(int_tuple.take(i + 1, R, shp)));
+            result[i] = make_row_stride_scaled_like(shp[i], actual_scale);
         }
         return result;
     }
-    return numeric._1;
+    if (comptime numeric.is_static_int(ShapeT) and ShapeT.static_value == 1) {
+        return numeric._0;
+    }
+    return scale;
 }
 
 fn CompactStrideType(comptime ShapeT: type, comptime ScaleT: type) type {
@@ -1649,6 +1662,9 @@ fn CompactStrideType(comptime ShapeT: type, comptime ScaleT: type) type {
         }
         return std.meta.Tuple(&fields);
     }
+    if (comptime numeric.is_static_int(ShapeT) and ShapeT.static_value == 1) {
+        return @TypeOf(numeric._0);
+    }
     return ScaleT;
 }
 
@@ -1656,14 +1672,18 @@ fn CompactRowMajorStrideType(comptime ShapeT: type, comptime ScaleT: type) type 
     if (comptime int_tuple.is_tuple(ShapeT)) {
         const R = comptime int_tuple.rank(ShapeT);
         comptime var fields: [R]type = undefined;
-        comptime var running_scale = ScaleT;
-        comptime var i = R;
-        inline while (i > 0) {
-            i -= 1;
-            fields[i] = CompactStrideType(child_type(ShapeT, i), running_scale);
-            running_scale = int_tuple.ArithmeticType(running_scale, int_tuple.StaticProductType(child_type(ShapeT, i)), .mul);
+        inline for (0..R) |i| {
+            const SuffixT = int_tuple.TakeType(i + 1, R, ShapeT);
+            const ActualScaleT = if (i == R - 1)
+                ScaleT
+            else
+                int_tuple.ArithmeticType(ScaleT, int_tuple.StaticProductType(SuffixT), .mul);
+            fields[i] = CompactRowMajorStrideType(child_type(ShapeT, i), ActualScaleT);
         }
         return std.meta.Tuple(&fields);
+    }
+    if (comptime numeric.is_static_int(ShapeT) and ShapeT.static_value == 1) {
+        return @TypeOf(numeric._0);
     }
     return ScaleT;
 }
@@ -2220,6 +2240,44 @@ test "static compact constructor remains coalescible" {
     try std.testing.expectEqual(@as(usize, 1), int_tuple.rank(@TypeOf(compact.shape)));
     try std.testing.expectEqual(@as(comptime_int, 24), n.value(compact.shape[0]));
     try std.testing.expectEqual(@as(comptime_int, 1), n.value(compact.stride[0]));
+}
+
+test "compact left uses zero stride for static unit modes" {
+    const n = numeric;
+
+    const l = make_layout_left(.{ n._4, n._1 });
+
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(l.stride[0]));
+    try std.testing.expectEqual(@as(comptime_int, 0), n.value(l.stride[1]));
+}
+
+test "compact right uses zero stride for static unit modes" {
+    const n = numeric;
+
+    const l = make_layout_right(.{ n._1, n._4 });
+
+    try std.testing.expectEqual(@as(comptime_int, 0), n.value(l.stride[0]));
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(l.stride[1]));
+}
+
+test "nested compact right recurses in right-major order" {
+    const n = numeric;
+
+    const l = make_layout_right(.{ .{ n._2, n._3 }, n._4 });
+
+    try std.testing.expectEqual(@as(comptime_int, 12), n.value(l.stride[0][0]));
+    try std.testing.expectEqual(@as(comptime_int, 4), n.value(l.stride[0][1]));
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(l.stride[1]));
+}
+
+test "nested compact left recurses in left-major order" {
+    const n = numeric;
+
+    const l = make_layout_left(.{ .{ n._2, n._3 }, n._4 });
+
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(l.stride[0][0]));
+    try std.testing.expectEqual(@as(comptime_int, 2), n.value(l.stride[0][1]));
+    try std.testing.expectEqual(@as(comptime_int, 6), n.value(l.stride[1]));
 }
 
 test "coshape of empty layout is zero" {

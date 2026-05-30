@@ -63,6 +63,9 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
 
         /// Reshape the tensor by composing its current layout with a new domain layout.
         /// This preserves the logical element order.
+        /// NOTE: This returns a tensor with a ComposedLayout, which may be incompatible
+        /// with certain layout transformations like flatten_layout, take, or select2
+        /// until composition is materialized.
         pub fn reshape(self: Self, new_shape: anytype) @TypeOf(
             make_tensor(
                 self.ptr,
