@@ -40,14 +40,14 @@ pub fn sgemm_sm80(
     const tiled_mma = cute.atom.builders.TiledMMA(MyAtom, .{ 1, 1, 1 }){};
     const thr_mma = tiled_mma.get_thread_slice(thread_id);
 
-    // 3. Shared Memory Tiles
-    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_A), cute.layout.make_layout(.{ 16, 16 }, .{ 16, 1 }));
-    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_B), cute.layout.make_layout(.{ 8, 16 }, .{ 16, 1 }));
+    // 3. Shared Memory Tiles (Use Column-Major to match Atom TV-Layouts)
+    const sA = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_A), cute.layout.make_layout_col_major(16, 16));
+    const sB = cute.tensor.make_tensor(@as([*]addrspace(.shared) f16, &smem_B), cute.layout.make_layout_col_major(16, 8));
 
-    // 4. Register Fragments
-    var rA: [8]f16 = undefined;
-    var rB: [4]f16 = undefined;
-    var accum: [4]f32 = [_]f32{0.0} ** 4;
+    // 4. Register Fragments (Align to 16 bytes for MMA efficiency)
+    var rA: [8]f16 align(16) = undefined;
+    var rB: [4]f16 align(16) = undefined;
+    var accum: [4]f32 align(16) = [_]f32{0.0} ** 4;
 
     const thr_rA = cute.tensor.make_tensor(@as([*]f16, &rA), cute.layout.make_layout_1d(8));
     const thr_rB = cute.tensor.make_tensor(@as([*]f16, &rB), cute.layout.make_layout_1d(4));
@@ -55,11 +55,11 @@ pub fn sgemm_sm80(
 
     // 4.5 Load initial C values into accumulators
     inline for (0..4) |i| {
-        const coord_16x8 = mma_traits.layout_c.map(.{ thread_id, i });
-        const row_in_tile = coord_16x8 % 16;
-        const col_in_tile = coord_16x8 / 16;
-        const gm = block_m * 16 + row_in_tile;
-        const gn = block_n * 8 + col_in_tile;
+        const idx = mma_traits.layout_c.map(.{ thread_id, i });
+        const m = idx % 16;
+        const n = idx / 16;
+        const gm = block_m * 16 + m;
+        const gn = block_n * 8 + n;
         if (gm < M and gn < N) {
             accum[i] = tensor_C.get(.{ gm, gn });
         }
@@ -69,34 +69,39 @@ pub fn sgemm_sm80(
     const thr_sA = thr_mma.partition_A(sA);
     const thr_sB = thr_mma.partition_B(sB);
 
-    // 6. Define Global-to-Shared Copy Layout (32 threads x 8 elements = 256 for sA, 4 for sB)
-    const gcopy_tv_A = cute.layout.make_layout(.{ 32, 8 }, .{ 8, 1 });
-    const gcopy_tv_B = cute.layout.make_layout(.{ 32, 4 }, .{ 4, 1 });
-
+    // 6. Define Global-to-Shared Copy Layouts
+    // A: 16x16 = 256. 32 threads -> 8 elements each.
+    // B: 8x16 = 128. 32 threads -> 4 elements each.
+    
     // 7. GEMM Main Loop
     const k_tiles = (K + 15) / 16;
     for (0..k_tiles) |k_tile| {
         // Cooperative Load A (16x16)
         inline for (0..8) |i| {
-            const coord = gcopy_tv_A.map(.{ thread_id, i });
-            const m = block_m * 16 + (coord / 16);
-            const k = k_tile * 16 + (coord % 16);
-            if (m < M and k < K) {
-                sA.set_1d(coord, tensor_A.get(.{ m, k }));
+            const coord = thread_id * 8 + i;
+            const m_in_tile = coord % 16;
+            const k_in_tile = coord / 16;
+            const gm = block_m * 16 + m_in_tile;
+            const gk = k_tile * 16 + k_in_tile;
+            if (gm < M and gk < K) {
+                sA.set(.{ m_in_tile, k_in_tile }, tensor_A.get(.{ gm, gk }));
             } else {
-                sA.set_1d(coord, 0);
+                sA.set(.{ m_in_tile, k_in_tile }, 0);
             }
         }
 
-        // Cooperative Load B (8x16)
+        // Cooperative Load B (8x16 logically, stored as 16x8 in sB for MMA)
         inline for (0..4) |i| {
-            const coord = gcopy_tv_B.map(.{ thread_id, i });
-            const n = block_n * 8 + (coord / 16);
-            const k = k_tile * 16 + (coord % 16);
-            if (n < N and k < K) {
-                sB.set_1d(coord, tensor_B.get(.{ n, k }));
+            const coord = thread_id * 4 + i;
+            const n_in_tile = coord / 16;
+            const k_in_tile = coord % 16;
+            const gn = block_n * 8 + n_in_tile;
+            const gk = k_tile * 16 + k_in_tile;
+            if (gn < N and gk < K) {
+                // sB is (K, N) logically for the MMA atom
+                sB.set(.{ k_in_tile, n_in_tile }, tensor_B.get(.{ gn, gk }));
             } else {
-                sB.set_1d(coord, 0);
+                sB.set(.{ k_in_tile, n_in_tile }, 0);
             }
         }
         cute.arch.sync.syncthreads();
@@ -106,25 +111,20 @@ pub fn sgemm_sm80(
         cute.algorithm.copy(thr_sB, thr_rB);
 
         // MMA
-        const thr_rA_u32 = cute.tensor.make_tensor(@as([*]u32, @ptrCast(@alignCast(&rA))), cute.layout.make_layout_1d(4));
-        const thr_rB_u32 = cute.tensor.make_tensor(@as([*]u32, @ptrCast(@alignCast(&rB))), cute.layout.make_layout_1d(2));
+        const thr_rA_u32 = cute.tensor.make_tensor(@as([*]u32, @ptrCast(&rA)), cute.layout.make_layout_1d(4));
+        const thr_rB_u32 = cute.tensor.make_tensor(@as([*]u32, @ptrCast(&rB)), cute.layout.make_layout_1d(2));
         thr_mma.fma(thr_acc, thr_rA_u32, thr_rB_u32, thr_acc);
 
         cute.arch.sync.syncthreads();
     }
 
     // 8. Epilogue: Write back Accumulators to Global C
-    // Each thread writes its 4 elements
     inline for (0..4) |i| {
-        // Logical offset in the 16x8 tile for this thread/value.
-        // The MMA atom treats the 16x8 tile as Col-Major logically.
-        const coord_16x8 = mma_traits.layout_c.map(.{ thread_id, i });
-        const row_in_tile = coord_16x8 % 16;
-        const col_in_tile = coord_16x8 / 16;
-        
-        const gm = block_m * 16 + row_in_tile;
-        const gn = block_n * 8 + col_in_tile;
-
+        const idx = mma_traits.layout_c.map(.{ thread_id, i });
+        const m = idx % 16;
+        const n = idx / 16;
+        const gm = block_m * 16 + m;
+        const gn = block_n * 8 + n;
         if (gm < M and gn < N) {
             tensor_C.set(.{ gm, gn }, accum[i]);
         }
