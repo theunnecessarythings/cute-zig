@@ -389,6 +389,9 @@ pub fn raked_product(block: anytype, tiler: anytype) @TypeOf(make_layout(
 }
 
 pub fn coshape(l: anytype) usize {
+    if (comptime @hasDecl(@TypeOf(l), "transformed_layout")) {
+        return l.cosize();
+    }
     if (int_tuple.size(l.shape) == 0) return 0;
     return coshape_for(l.shape, l.stride);
 }
@@ -1603,55 +1606,66 @@ fn static_ceil_div(a: anytype, b: anytype) if (numeric.is_static_int(@TypeOf(a))
     return @divTrunc(numeric.value(a) + numeric.value(b) - 1, numeric.value(b));
 }
 
-fn make_compact_col_major_stride(shp: anytype) CompactStrideType(@TypeOf(shp)) {
-    if (comptime int_tuple.is_tuple(@TypeOf(shp))) {
-        var result: CompactStrideType(@TypeOf(shp)) = undefined;
-        var running: usize = 1;
-        inline for (0..comptime int_tuple.rank(@TypeOf(shp))) |i| {
-            result[i] = make_stride_scaled_like(shp[i], running);
-            running *= int_tuple.product(shp[i]);
-        }
-        return result;
-    }
-    return @as(usize, 1);
+fn make_compact_col_major_stride(shp: anytype) CompactStrideType(@TypeOf(shp), @TypeOf(numeric._1)) {
+    return make_stride_scaled_like(shp, numeric._1);
 }
 
-fn make_stride_scaled_like(shp: anytype, scale: usize) CompactStrideType(@TypeOf(shp)) {
-    if (comptime int_tuple.is_tuple(@TypeOf(shp))) {
-        var result: CompactStrideType(@TypeOf(shp)) = undefined;
-        var running = scale;
-        inline for (0..comptime int_tuple.rank(@TypeOf(shp))) |i| {
-            result[i] = make_stride_scaled_like(shp[i], running);
-            running *= int_tuple.product(shp[i]);
+fn make_stride_scaled_like(shp: anytype, scale: anytype) CompactStrideType(@TypeOf(shp), @TypeOf(scale)) {
+    const ShapeT = @TypeOf(shp);
+    if (comptime int_tuple.is_tuple(ShapeT)) {
+        const R = comptime int_tuple.rank(ShapeT);
+        var result: CompactStrideType(ShapeT, @TypeOf(scale)) = undefined;
+        inline for (0..R) |i| {
+            const actual_scale = if (i == 0) scale else int_tuple.mul(scale, int_tuple.static_product(int_tuple.take(0, i, shp)));
+            result[i] = make_stride_scaled_like(shp[i], actual_scale);
         }
         return result;
     }
     return scale;
 }
 
-fn make_compact_row_major_stride(shp: anytype) CompactStrideType(@TypeOf(shp)) {
-    if (comptime int_tuple.is_tuple(@TypeOf(shp))) {
-        var result: CompactStrideType(@TypeOf(shp)) = undefined;
-        var running: usize = 1;
-        comptime var idx = int_tuple.rank(@TypeOf(shp));
-        inline while (idx > 0) {
-            idx -= 1;
-            result[idx] = make_stride_scaled_like(shp[idx], running);
-            running *= int_tuple.product(shp[idx]);
+fn make_compact_row_major_stride(shp: anytype) CompactRowMajorStrideType(@TypeOf(shp), @TypeOf(numeric._1)) {
+    const ShapeT = @TypeOf(shp);
+    if (comptime int_tuple.is_tuple(ShapeT)) {
+        const R = comptime int_tuple.rank(ShapeT);
+        var result: CompactRowMajorStrideType(ShapeT, @TypeOf(numeric._1)) = undefined;
+        inline for (0..R) |i| {
+            const actual_scale = if (i == R - 1) numeric._1 else int_tuple.mul(numeric._1, int_tuple.static_product(int_tuple.take(i + 1, R, shp)));
+            result[i] = make_stride_scaled_like(shp[i], actual_scale);
         }
         return result;
     }
-    return @as(usize, 1);
+    return numeric._1;
 }
 
-fn CompactStrideType(comptime ShapeT: type) type {
+fn CompactStrideType(comptime ShapeT: type, comptime ScaleT: type) type {
     if (comptime int_tuple.is_tuple(ShapeT)) {
         const R = comptime int_tuple.rank(ShapeT);
         comptime var fields: [R]type = undefined;
-        inline for (0..R) |i| fields[i] = CompactStrideType(child_type(ShapeT, i));
+        comptime var running_scale = ScaleT;
+        inline for (0..R) |i| {
+            fields[i] = CompactStrideType(child_type(ShapeT, i), running_scale);
+            running_scale = int_tuple.ArithmeticType(running_scale, int_tuple.StaticProductType(child_type(ShapeT, i)), .mul);
+        }
         return std.meta.Tuple(&fields);
     }
-    return usize;
+    return ScaleT;
+}
+
+fn CompactRowMajorStrideType(comptime ShapeT: type, comptime ScaleT: type) type {
+    if (comptime int_tuple.is_tuple(ShapeT)) {
+        const R = comptime int_tuple.rank(ShapeT);
+        comptime var fields: [R]type = undefined;
+        comptime var running_scale = ScaleT;
+        comptime var i = R;
+        inline while (i > 0) {
+            i -= 1;
+            fields[i] = CompactStrideType(child_type(ShapeT, i), running_scale);
+            running_scale = int_tuple.ArithmeticType(running_scale, int_tuple.StaticProductType(child_type(ShapeT, i)), .mul);
+        }
+        return std.meta.Tuple(&fields);
+    }
+    return ScaleT;
 }
 
 fn compact_order(shp: anytype, order: anytype) CompactOrderType(@TypeOf(shp), @TypeOf(order)) {
@@ -2183,12 +2197,45 @@ test "composed cosize uses max over actual rhs domain" {
     try std.testing.expectEqual(@as(usize, 11), c.cosize());
 }
 
+test "compact constructors preserve static stride types" {
+    const n = numeric;
+
+    const left = make_layout_left(.{ n._2, n._3, n._4 });
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(left.stride[0])));
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(left.stride[1])));
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(left.stride[2])));
+
+    const right = make_layout_right(.{ n._2, n._3, n._4 });
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(right.stride[0])));
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(right.stride[1])));
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(right.stride[2])));
+}
+
+test "static compact constructor remains coalescible" {
+    const n = numeric;
+
+    const left = make_layout_left(.{ n._2, n._3, n._4 });
+    const compact = coalesce(left);
+
+    try std.testing.expectEqual(@as(usize, 1), int_tuple.rank(@TypeOf(compact.shape)));
+    try std.testing.expectEqual(@as(comptime_int, 24), n.value(compact.shape[0]));
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(compact.stride[0]));
+}
+
 test "coshape of empty layout is zero" {
     const zero: usize = 0;
     const l = make_layout(zero, @as(usize, 1));
 
     try std.testing.expectEqual(@as(usize, 0), l.size());
     try std.testing.expectEqual(@as(usize, 0), coshape(l));
+}
+
+test "coshape honors transformed layout footprint" {
+    const base = make_layout(@as(usize, 3), @as(usize, 1));
+    const sw = @import("swizzle.zig").make_swizzle_layout(base, @import("swizzle.zig").Swizzle(1, 0, 1){});
+
+    try std.testing.expectEqual(@as(usize, 4), sw.cosize());
+    try std.testing.expectEqual(sw.cosize(), coshape(sw));
 }
 
 test "blocked_product supports runtime block shape" {

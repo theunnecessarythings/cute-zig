@@ -9,9 +9,9 @@ pub const SM80_16x8x8_F16F16F16F16_TN = types.MmaInst {
     .a_regs = .{ .ty = u32, .count = 2 },
     .b_regs = .{ .ty = u32, .count = 1 },
     .c_regs = .{ .ty = u32, .count = 2 },
-    .d_ty = .f32, .a_ty = .f16, .b_ty = .f16, .c_ty = .f32,
+    .d_ty = .f16, .a_ty = .f16, .b_ty = .f16, .c_ty = .f16,
     .layout_a = .row, .layout_b = .col,
-    .ptx = "mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16  {%[v0], %[v1]}, {%[v2], %[v3]}, {%[v4]}, {%[v5], %[v6]};",
+    .ptx = "mma.sync.aligned.m16n8k8.row.col.f16.f16.f16.f16  {%[v0],  %[v1]}, {%[v2],  %[v3]}, {%[v4]}, {%[v5],  %[v6]};",
     .saturate = false,
 };
 
@@ -23,11 +23,12 @@ pub const SM80_16x8x16_F16F16F16F16_TN = types.MmaInst {
     .a_regs = .{ .ty = u32, .count = 4 },
     .b_regs = .{ .ty = u32, .count = 2 },
     .c_regs = .{ .ty = u32, .count = 2 },
-    .d_ty = .f32, .a_ty = .f16, .b_ty = .f16, .c_ty = .f32,
+    .d_ty = .f16, .a_ty = .f16, .b_ty = .f16, .c_ty = .f16,
     .layout_a = .row, .layout_b = .col,
     .ptx = "mma.sync.aligned.m16n8k16.row.col.f16.f16.f16.f16  {%[v0],  %[v1]}, {%[v2],  %[v3],  %[v4],  %[v5]}, {%[v6],  %[v7]}, {%[v8],  %[v9]};",
     .saturate = false,
 };
+
 
 pub const SM80_16x8x8_F32F16F16F32_TN = types.MmaInst {
     .name = "SM80_16x8x8_F32F16F16F32_TN",

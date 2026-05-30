@@ -61,17 +61,17 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
             return make_tensor(self.ptr + result.offset, result.layout);
         }
 
-        /// Reshape the tensor to a compact column-major layout with the same element count.
-        pub fn reshape(self: Self, new_shape: anytype) @TypeOf(make_tensor(self.ptr, layout_mod.make_layout_left(new_shape))) {
-            comptime if (@hasDecl(LayoutType, "transformed_layout")) {
-                @compileError("reshape does not yet preserve transformed tensor layout semantics");
-            };
-            const new_layout = layout_mod.make_layout_left(new_shape);
-            if (self.size() != new_layout.size()) @panic("tensor reshape changes logical element count");
-            if (self.layout.cosize() != self.size()) {
-                @panic("tensor reshape requires a contiguous compact footprint");
-            }
-            return make_tensor(self.ptr, new_layout);
+        /// Reshape the tensor by composing its current layout with a new domain layout.
+        /// This preserves the logical element order.
+        pub fn reshape(self: Self, new_shape: anytype) @TypeOf(
+            make_tensor(
+                self.ptr,
+                layout_mod.composition(self.layout, layout_mod.make_layout_left(new_shape)),
+            ),
+        ) {
+            const new_domain = layout_mod.make_layout_left(new_shape);
+            if (self.size() != new_domain.size()) @panic("tensor reshape changes logical element count");
+            return make_tensor(self.ptr, layout_mod.composition(self.layout, new_domain));
         }
 
         /// Flatten the tensor's layout into 1D.
@@ -90,6 +90,23 @@ test "tensor reshape basics" {
     const reshaped = t.reshape(@as(usize, 6));
     try std.testing.expectEqual(@as(usize, 6), reshaped.size());
     try std.testing.expectEqual(@as(i32, 2), reshaped.get_1d(1));
+
+    // Verify logical order preservation for row-major input
+    var data2 = [_]i32{ 10, 20, 30, 40 };
+    const row = layout.make_layout_right(.{ @as(usize, 2), @as(usize, 2) });
+    const t2 = make_tensor(@as([*]i32, &data2), row);
+
+    try std.testing.expectEqual(@as(i32, 10), t2.get_1d(0));
+    try std.testing.expectEqual(@as(i32, 30), t2.get_1d(1));
+    try std.testing.expectEqual(@as(i32, 20), t2.get_1d(2));
+    try std.testing.expectEqual(@as(i32, 40), t2.get_1d(3));
+
+    const reshaped2 = t2.reshape(@as(usize, 4));
+
+    try std.testing.expectEqual(t2.get_1d(0), reshaped2.get_1d(0));
+    try std.testing.expectEqual(t2.get_1d(1), reshaped2.get_1d(1));
+    try std.testing.expectEqual(t2.get_1d(2), reshaped2.get_1d(2));
+    try std.testing.expectEqual(t2.get_1d(3), reshaped2.get_1d(3));
 }
 
 /// Helper to create a Tensor from a pointer and a layout.

@@ -684,6 +684,6 @@ test "tensor reshape uses compact layout with matching size" {
     const reshaped = tensor.reshape(.{ @as(usize, 3), @as(usize, 2) });
 
     try std.testing.expectEqual(@as(usize, 6), reshaped.size());
-    try std.testing.expectEqual(@as(usize, 1), reshaped.layout.stride[0]);
-    try std.testing.expectEqual(@as(usize, 4), reshaped.map(.{ @as(usize, 1), @as(usize, 1) }));
+    try std.testing.expectEqual(@as(usize, 1), cute.numeric.value(reshaped.layout.stride[0]));
+    try std.testing.expectEqual(@as(usize, 2), reshaped.map(.{ @as(usize, 1), @as(usize, 1) }));
 }
