@@ -125,15 +125,15 @@ pub fn SwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
         }
 
         pub fn get_hier_coord(self: Self, idx: usize) @TypeOf(self.layout.get_hier_coord(idx)) {
-            return self.layout.get_hier_coord(idx);
+            return self.layout.get_hier_coord(self.swizzle.apply(idx));
         }
 
         pub fn get_flat_coord(self: Self, idx: usize) @TypeOf(self.layout.get_flat_coord(idx)) {
-            return self.layout.get_flat_coord(idx);
+            return self.layout.get_flat_coord(self.swizzle.apply(idx));
         }
 
         pub fn get_1d_coord(self: Self, idx: usize) usize {
-            return self.layout.get_1d_coord(idx);
+            return self.layout.get_1d_coord(self.swizzle.apply(idx));
         }
 
         pub fn size(self: Self) usize {
@@ -196,15 +196,18 @@ pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type
         }
 
         pub fn get_hier_coord(self: Self, idx: usize) @TypeOf(self.layout.get_hier_coord(idx)) {
-            return self.layout.get_hier_coord(idx);
+            const pre_swizzle = self.swizzle.apply(idx);
+            return self.layout.get_hier_coord(pre_swizzle - self.base_offset);
         }
 
         pub fn get_flat_coord(self: Self, idx: usize) @TypeOf(self.layout.get_flat_coord(idx)) {
-            return self.layout.get_flat_coord(idx);
+            const pre_swizzle = self.swizzle.apply(idx);
+            return self.layout.get_flat_coord(pre_swizzle - self.base_offset);
         }
 
         pub fn get_1d_coord(self: Self, idx: usize) usize {
-            return self.layout.get_1d_coord(idx);
+            const pre_swizzle = self.swizzle.apply(idx);
+            return self.layout.get_1d_coord(pre_swizzle - self.base_offset);
         }
 
         pub fn size(self: Self) usize {

@@ -181,7 +181,7 @@ pub fn make_layout_right(shp: anytype) @TypeOf(make_layout(shp, make_compact_row
     return make_layout(shp, make_compact_row_major_stride(shp));
 }
 
-pub fn make_identity_layout(shp: anytype) @TypeOf(make_layout(shp, make_basis_like(shp))) {
+pub fn make_compact_coordinate_encoding_layout(shp: anytype) @TypeOf(make_layout(shp, make_basis_like(shp))) {
     return make_layout(shp, make_basis_like(shp));
 }
 
@@ -625,7 +625,15 @@ fn BasisLikeType(comptime ShapeT: type, comptime StrideT: type, comptime path: [
         const R = comptime int_tuple.rank(ShapeT);
         comptime var fields: [R]type = undefined;
         inline for (0..R) |i| {
-            const ModeStrideT = if (i == 0) StrideT else int_tuple.ArithmeticType(StrideT, int_tuple.StaticProductType(int_tuple.TakeType(0, i, ShapeT)), .mul);
+            const PrefixT = @TypeOf(int_tuple.take(0, i, @as(ShapeT, undefined)));
+            const PrefixProductT = @TypeOf(int_tuple.static_product(@as(PrefixT, undefined)));
+            const ModeStrideT = if (i == 0)
+                StrideT
+            else
+                @TypeOf(int_tuple.mul(
+                    @as(StrideT, undefined),
+                    @as(PrefixProductT, undefined),
+                ));
             fields[i] = BasisLikeType(child_type(ShapeT, i), ModeStrideT, append_path(path, i));
         }
         return std.meta.Tuple(&fields);
@@ -1976,15 +1984,6 @@ pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
             };
         }
         pub fn size(self: Self) usize { return self.rhs.size(); }
-        pub fn get_hier_coord(self: Self, idx: usize) @TypeOf(self.rhs.get_hier_coord(idx)) {
-            return self.rhs.get_hier_coord(idx);
-        }
-        pub fn get_flat_coord(self: Self, idx: usize) @TypeOf(self.rhs.get_flat_coord(idx)) {
-            return self.rhs.get_flat_coord(idx);
-        }
-        pub fn get_1d_coord(self: Self, idx: usize) usize {
-            return self.rhs.get_1d_coord(idx);
-        }
         pub fn cosize(self: Self) usize {
             const sz = self.size();
             if (sz == 0) return 0;
@@ -2060,10 +2059,10 @@ test "logical_divide supports runtime shapes" {
     try std.testing.expectEqual(@as(usize, 4), divided.shape[1]);
 }
 
-test "identity layout supports map_1d and get_hier_coord" {
+test "make_compact_coordinate_encoding_layout instantiates and matches logical indexing" {
     const n = numeric;
 
-    const id = make_identity_layout(.{ n._2, n._4 });
+    const id = make_compact_coordinate_encoding_layout(.{ n._2, n._4 });
 
     try std.testing.expectEqual(@as(usize, 6), id.map(.{ n._0, n._3 }));
     try std.testing.expectEqual(@as(usize, 3), id.map_1d(3));

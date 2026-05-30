@@ -114,6 +114,7 @@ pub fn size(t: anytype) usize {
 pub fn static_product(t: anytype) StaticProductType(@TypeOf(t)) {
     const T = @TypeOf(t);
     if (comptime is_tuple(T)) {
+        if (comptime rank(T) == 0) return numeric._1;
         return static_product_recursive(t, 0);
     } else {
         return t;
