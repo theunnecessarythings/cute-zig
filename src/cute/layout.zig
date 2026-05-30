@@ -208,7 +208,34 @@ pub fn make_ordered_layout(shp: anytype, order: anytype) @TypeOf(make_layout(shp
     comptime if (has_nested_shape(@TypeOf(shp))) {
         @compileError("make_ordered_layout does not yet support hierarchical shape profiles");
     };
+    comptime validate_static_flat_order(@TypeOf(shp), @TypeOf(order));
     return make_layout(shp, compact_order(shp, order));
+}
+
+fn validate_static_flat_order(comptime ShapeT: type, comptime OrderT: type) void {
+    comptime if (!int_tuple.is_tuple(ShapeT) or !int_tuple.is_tuple(OrderT)) {
+        @compileError("make_ordered_layout expects tuple shape and tuple order");
+    };
+
+    const R = comptime int_tuple.rank(ShapeT);
+    comptime if (int_tuple.rank(OrderT) != R) {
+        @compileError("make_ordered_layout shape and order ranks must match");
+    };
+
+    comptime var all_static = true;
+    inline for (0..R) |i| {
+        if (!numeric.is_static_int(child_type(OrderT, i))) all_static = false;
+    }
+
+    if (comptime all_static) {
+        inline for (0..R) |i| {
+            inline for (i + 1..R) |j| {
+                if (child_type(OrderT, i).static_value == child_type(OrderT, j).static_value) {
+                    @compileError("make_ordered_layout static order values must be unique");
+                }
+            }
+        }
+    }
 }
 
 fn contains_transformed_layout_type(comptime T: type) bool {
@@ -2067,13 +2094,13 @@ fn coord_value_type(comptime CoordT: type, comptime LeafT: type) type {
 }
 
 /// Create a 1D layout (N) -> (1)
-pub fn make_layout_1d(n: anytype) @TypeOf(make_layout(n, @as(isize, 1))) {
-    return make_layout(n, @as(isize, 1));
+pub fn make_layout_1d(n: anytype) @TypeOf(make_layout_left(n)) {
+    return make_layout_left(n);
 }
 
 /// Create a Column-Major layout (M, N) -> (1, M)
-pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout(.{ m, n }, .{ numeric._1, int_tuple.static_product(m) })) {
-    return make_layout(.{ m, n }, .{ numeric._1, int_tuple.static_product(m) });
+pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout_left(.{ m, n })) {
+    return make_layout_left(.{ m, n });
 }
 
 pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
@@ -2211,6 +2238,30 @@ test "make_layout_col_major handles runtime and static values safely" {
     try std.testing.expectEqual(@as(usize, 32), n.value(l2.shape[0]));
     try std.testing.expectEqual(@as(usize, 32), @as(usize, @intCast(n.value(l2.stride[1]))));
     try std.testing.expect(comptime numeric.is_static_int(@TypeOf(l2.stride[1])));
+}
+
+test "make_layout_1d uses canonical compact stride semantics" {
+    const n = numeric;
+
+    const unit = make_layout_1d(n._1);
+    try std.testing.expectEqual(@as(comptime_int, 0), n.value(unit.stride));
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(unit.stride)));
+
+    const four = make_layout_1d(n._4);
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(four.stride));
+    try std.testing.expect(comptime n.is_static_int(@TypeOf(four.stride)));
+}
+
+test "make_layout_col_major matches compact left canonicalization" {
+    const n = numeric;
+
+    const a = make_layout_col_major(n._4, n._1);
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(a.stride[0]));
+    try std.testing.expectEqual(@as(comptime_int, 0), n.value(a.stride[1]));
+
+    const b = make_layout_col_major(n._1, n._4);
+    try std.testing.expectEqual(@as(comptime_int, 0), n.value(b.stride[0]));
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(b.stride[1]));
 }
 
 test "map_1d handles zero-stride extent-one modes" {
