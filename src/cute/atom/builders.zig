@@ -180,29 +180,35 @@ pub fn CopyAtom(comptime inst: anytype, comptime traits: anytype) type {
         }
 
         pub inline fn copy(src: anytype, dst: anytype) void {
-            const arch_builders = @import("../arch/builders.zig");
-            const atom_op = arch_builders.Copy(Op);
-
-            validateRegisterTensor("copy source", src, atom_op.SRegisters);
-            validateRegisterTensor("copy destination", dst, atom_op.DRegisters);
-
-            const s_regs = @as(*const atom_op.SRegisters, @ptrCast(@alignCast(src.ptr))).*;
-            const d_regs = @as(*atom_op.DRegisters, @ptrCast(@alignCast(dst.ptr)));
-
-            atom_op.copy(s_regs, d_regs, true);
+            copy_p(src, dst, true);
         }
 
         pub inline fn copy_p(src: anytype, dst: anytype, pred: bool) void {
             const arch_builders = @import("../arch/builders.zig");
             const atom_op = arch_builders.Copy(Op);
 
-            validateRegisterTensor("copy source", src, atom_op.SRegisters);
-            validateRegisterTensor("copy destination", dst, atom_op.DRegisters);
-
-            const s_regs = @as(*const atom_op.SRegisters, @ptrCast(@alignCast(src.ptr))).*;
-            const d_regs = @as(*atom_op.DRegisters, @ptrCast(@alignCast(dst.ptr)));
-
-            atom_op.copy(s_regs, d_regs, pred);
+            switch (Op.kind) {
+                .reg_to_reg => {
+                    validateRegisterTensor("copy source", src, atom_op.SRegisters);
+                    validateRegisterTensor("copy destination", dst, atom_op.DRegisters);
+                    const s_regs = @as(*const atom_op.SRegisters, @ptrCast(@alignCast(src.ptr))).*;
+                    const d_regs = @as(*atom_op.DRegisters, @ptrCast(@alignCast(dst.ptr)));
+                    atom_op.copy(s_regs, d_regs, pred);
+                },
+                .smem_to_reg => {
+                    validateRegisterTensor("copy destination", dst, atom_op.DRegisters);
+                    const s_ptr = @as([*]addrspace(.shared) const u8, @ptrCast(src.ptr));
+                    const d_regs = @as(*atom_op.DRegisters, @ptrCast(@alignCast(dst.ptr)));
+                    atom_op.copy(s_ptr, d_regs, pred);
+                },
+                .reg_to_smem => {
+                    validateRegisterTensor("copy source", src, atom_op.SRegisters);
+                    const s_regs = @as(*const atom_op.SRegisters, @ptrCast(@alignCast(src.ptr))).*;
+                    const d_ptr = @as([*]addrspace(.shared) u8, @ptrCast(dst.ptr));
+                    atom_op.copy(s_regs, d_ptr, pred);
+                },
+                else => @compileError("CopyAtom kind not yet implemented"),
+            }
         }
     };
 }

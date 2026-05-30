@@ -124,11 +124,31 @@ pub fn build(b: *std.Build) void {
     const run_atom_tests = b.addRunArtifact(atom_tests);
     const run_layout_tests = b.addRunArtifact(layout_tests);
     const run_numeric_tests = b.addRunArtifact(numeric_tests);
+    
+    const arch_check_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/cute/arch/check.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    arch_check_tests.root_module.addImport("cute", cute_mod);
+    const run_arch_check_tests = b.addRunArtifact(arch_check_tests);
+    
+    const check_atom_traits = b.addSystemCommand(&.{
+        "python3",
+        b.pathFromRoot("tools/check_atom_traits.py"),
+        "--all",
+        "--strict",
+    });
+
     const test_step = b.step("test", "Run Zig parity and module tests");
     test_step.dependOn(&run_parity_tests.step);
     test_step.dependOn(&run_atom_tests.step);
     test_step.dependOn(&run_layout_tests.step);
     test_step.dependOn(&run_numeric_tests.step);
+    test_step.dependOn(&run_arch_check_tests.step);
+    test_step.dependOn(&check_atom_traits.step);
 
     const compile_fail_cases = [_]struct {
         source: []const u8,

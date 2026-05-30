@@ -69,9 +69,9 @@ pub const AddressSpace = enum {
 pub const CopyInst = struct {
     name: []const u8,
     sm: u16,
-    kind: CopyKind = .reg_to_reg, // Default for backward compat during migration
-    src_space: AddressSpace = .register,
-    dst_space: AddressSpace = .register,
+    kind: CopyKind,
+    src_space: AddressSpace,
+    dst_space: AddressSpace,
     s_regs: RegSpec,
     d_regs: RegSpec,
     ptx: []const u8,

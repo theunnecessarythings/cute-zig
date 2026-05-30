@@ -784,3 +784,6 @@ pub const SM100_TMEM_LOAD_STAT_32dp32b128x = types.CopyInst {
     .is_async = false,
 };
 
+
+pub const support_status = .unsupported;
+pub const unsupported_reason = "CopyKind/address-space generation incomplete";

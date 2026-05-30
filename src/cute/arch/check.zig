@@ -2,6 +2,32 @@ const std = @import("std");
 const cute_arch_db = @import("db/mod.zig");
 const types = @import("types.zig");
 
+fn check_copy_inst(comptime inst: types.CopyInst) void {
+    switch (inst.kind) {
+        .smem_to_reg => {
+            if (std.mem.indexOf(u8, inst.ptx, "ldmatrix") == null)
+                @compileError(inst.name ++ " is smem_to_reg without load PTX");
+            if (inst.src_space != .shared or inst.dst_space != .register)
+                @compileError(inst.name ++ " has inconsistent address spaces");
+        },
+        .reg_to_smem => {
+            if (std.mem.indexOf(u8, inst.ptx, "stmatrix") == null)
+                @compileError(inst.name ++ " is reg_to_smem without store PTX");
+            if (inst.src_space != .register or inst.dst_space != .shared)
+                @compileError(inst.name ++ " has inconsistent address spaces");
+        },
+        .reg_to_reg => {
+            if (std.mem.indexOf(u8, inst.ptx, "ldmatrix") != null or
+                std.mem.indexOf(u8, inst.ptx, "stmatrix") != null or
+                std.mem.indexOf(u8, inst.ptx, "tcgen05.ld") != null)
+            {
+                @compileError(inst.name ++ " memory operation incorrectly classified reg_to_reg");
+            }
+        },
+        else => {},
+    }
+}
+
 pub fn force_check() void {
     @setEvalBranchQuota(1000000);
     // 1. Instantiate every database module and one instruction
@@ -26,6 +52,7 @@ pub fn force_check() void {
                     check_mma_inst(@field(mod, mod_decl.name));
                 } else if (T == types.CopyInst) {
                     has_inst = true;
+                    check_copy_inst(@field(mod, mod_decl.name));
                 }
             }
         }
@@ -53,22 +80,16 @@ fn check_mma_inst(comptime inst: types.MmaInst) void {
         if (std.mem.eql(u8, b_str, "u1")) b_str = "b1";
         if (std.mem.eql(u8, c_str, "u1")) c_str = "b1";
 
-        if (std.mem.indexOf(u8, ptx, d_str) == null) {
-            @compileError("PTX string mismatch: expected d_ty " ++ d_str ++ " in " ++ inst.name);
-        }
-        if (std.mem.indexOf(u8, ptx, a_str) == null) {
-            @compileError("PTX string mismatch: expected a_ty " ++ a_str ++ " in " ++ inst.name);
-        }
-        if (std.mem.indexOf(u8, ptx, b_str) == null) {
-            @compileError("PTX string mismatch: expected b_ty " ++ b_str ++ " in " ++ inst.name);
-        }
-        if (std.mem.indexOf(u8, ptx, c_str) == null) {
-            @compileError("PTX string mismatch: expected c_ty " ++ c_str ++ " in " ++ inst.name);
+        const expected = comptime std.fmt.comptimePrint(".{s}.{s}.{s}.{s}", .{ d_str, a_str, b_str, c_str });
+        if (std.mem.indexOf(u8, ptx, expected) == null) {
+            @compileError("Ordered MMA datatype suffix mismatch for " ++ inst.name ++ ". Expected " ++ expected ++ " in " ++ ptx);
         }
     }
 }
 
 test "force_check generated database" {
-    force_check();
+    comptime {
+        force_check();
+    }
 }
 
