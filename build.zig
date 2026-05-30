@@ -105,11 +105,30 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    const layout_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/cute/layout.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const numeric_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/cute/numeric.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
     const run_parity_tests = b.addRunArtifact(parity_tests);
     const run_atom_tests = b.addRunArtifact(atom_tests);
+    const run_layout_tests = b.addRunArtifact(layout_tests);
+    const run_numeric_tests = b.addRunArtifact(numeric_tests);
     const test_step = b.step("test", "Run Zig parity and module tests");
     test_step.dependOn(&run_parity_tests.step);
     test_step.dependOn(&run_atom_tests.step);
+    test_step.dependOn(&run_layout_tests.step);
+    test_step.dependOn(&run_numeric_tests.step);
 
     const compile_fail_cases = [_]struct {
         source: []const u8,

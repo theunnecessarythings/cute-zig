@@ -45,24 +45,29 @@ pub fn is_constant(comptime expected: comptime_int, comptime T: type) bool {
     return is_static_int(T) and T.static_value == expected;
 }
 
-pub fn negate(x: anytype) C(-value(x)) {
-    return .{};
+pub fn negate(x: anytype) if (is_static_int(@TypeOf(x))) C(-value(x)) else @TypeOf(-value(x)) {
+    if (comptime is_static_int(@TypeOf(x))) return .{};
+    return -value(x);
 }
 
-pub fn add(a: anytype, b: anytype) C(value(a) + value(b)) {
-    return .{};
+pub fn add(a: anytype, b: anytype) if (is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) C(value(a) + value(b)) else @TypeOf(value(a) + value(b)) {
+    if (comptime is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) return .{};
+    return value(a) + value(b);
 }
 
-pub fn sub(a: anytype, b: anytype) C(value(a) - value(b)) {
-    return .{};
+pub fn sub(a: anytype, b: anytype) if (is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) C(value(a) - value(b)) else @TypeOf(value(a) - value(b)) {
+    if (comptime is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) return .{};
+    return value(a) - value(b);
 }
 
-pub fn mul(a: anytype, b: anytype) C(value(a) * value(b)) {
-    return .{};
+pub fn mul(a: anytype, b: anytype) if (is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) C(value(a) * value(b)) else @TypeOf(value(a) * value(b)) {
+    if (comptime is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) return .{};
+    return value(a) * value(b);
 }
 
-pub fn div(a: anytype, b: anytype) C(@divTrunc(value(a), value(b))) {
-    return .{};
+pub fn div(a: anytype, b: anytype) if (is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) C(@divTrunc(value(a), value(b))) else @TypeOf(@divTrunc(value(a), value(b))) {
+    if (comptime is_static_int(@TypeOf(a)) and is_static_int(@TypeOf(b))) return .{};
+    return @divTrunc(value(a), value(b));
 }
 
 pub const _0 = C(0){};
@@ -87,4 +92,11 @@ test "static integer arithmetic preserves static values" {
     try std.testing.expectEqual(@as(comptime_int, 12), value(mul(_3, _4)));
     try std.testing.expectEqual(@as(comptime_int, -3), value(negate(_3)));
     try std.testing.expect(comptime is_constant(4, @TypeOf(_4)));
+}
+
+test "runtime integer arithmetic works" {
+    const x: usize = 3;
+    const y: usize = 4;
+    try std.testing.expectEqual(@as(usize, 7), add(x, y));
+    try std.testing.expectEqual(@as(usize, 12), mul(x, y));
 }

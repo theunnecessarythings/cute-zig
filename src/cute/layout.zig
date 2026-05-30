@@ -396,6 +396,24 @@ fn BasisValuePathType(comptime CoordT: type, comptime path: []const usize) type 
     return BasisValuePathType(child_type(CoordT, path[0]), path[1..]);
 }
 
+fn min_abs_stride(strd: anytype) usize {
+    const T = @TypeOf(strd);
+    if (comptime int_tuple.is_tuple(T)) {
+        var min_s: usize = std.math.maxInt(usize);
+        const R = comptime int_tuple.rank(T);
+        inline for (0..R) |i| {
+            const s = min_abs_stride(strd[i]);
+            if (s < min_s) min_s = s;
+        }
+        return min_s;
+    }
+    const v = numeric.value(strd);
+    // Handle both static and runtime integers. 
+    // If it's a signed integer, we want its absolute value.
+    const iv: isize = @intCast(v);
+    return if (iv >= 0) @as(usize, @intCast(iv)) else @as(usize, @intCast(-iv));
+}
+
 pub fn idx2crd(idx: anytype, shp: anytype, strd: anytype) Idx2CrdType(@TypeOf(idx), @TypeOf(shp), @TypeOf(strd)) {
     return idx2crd_impl(@as(usize, @intCast(numeric.value(idx))), shp, strd).coord;
 }
@@ -403,12 +421,39 @@ pub fn idx2crd(idx: anytype, shp: anytype, strd: anytype) Idx2CrdType(@TypeOf(id
 fn idx2crd_impl(idx: usize, shp: anytype, strd: anytype) struct { coord: Idx2CrdType(usize, @TypeOf(shp), @TypeOf(strd)), remainder: usize } {
     const ShapeT = @TypeOf(shp);
     if (comptime int_tuple.is_tuple(ShapeT)) {
+        const R = comptime int_tuple.rank(ShapeT);
         var result: Idx2CrdType(usize, @TypeOf(shp), @TypeOf(strd)) = undefined;
         var rest = idx;
-        inline for (0..comptime int_tuple.rank(ShapeT)) |i| {
-            const sub = idx2crd_impl(rest, shp[i], strd[i]);
-            result[i] = sub.coord;
-            rest = sub.remainder;
+
+        // For compact layouts, we must decompose in increasing order of absolute strides.
+        var strides: [R]usize = undefined;
+        inline for (0..R) |i| strides[i] = min_abs_stride(strd[i]);
+
+        var p: [R]usize = undefined;
+        inline for (0..R) |i| p[i] = i;
+
+        // Comptime sort if possible, otherwise runtime. 
+        // We use a simple insertion sort for small R.
+        for (0..R) |i| {
+            for (i + 1..R) |j| {
+                if (strides[p[j]] < strides[p[i]]) {
+                    const tmp = p[i];
+                    p[i] = p[j];
+                    p[j] = tmp;
+                }
+            }
+        }
+
+        inline for (0..R) |i| {
+            const mode_idx = p[i];
+            // Since mode_idx might be runtime, we use a switch-like unrolling to access shp[mode_idx]
+            inline for (0..R) |k| {
+                if (mode_idx == k) {
+                    const sub = idx2crd_impl(rest, shp[k], strd[k]);
+                    result[k] = sub.coord;
+                    rest = sub.remainder;
+                }
+            }
         }
         return .{ .coord = result, .remainder = rest };
     }
@@ -1355,12 +1400,14 @@ fn LogicalDivideRestStrideType(comptime LayoutT: type, comptime TilerT: type) ty
     return @TypeOf(numeric.mul(@as(LayoutT.StrideType, undefined), @as(TilerT.ShapeType, undefined)));
 }
 
-fn static_div(a: anytype, b: anytype) numeric.C(@divTrunc(numeric.value(a), numeric.value(b))) {
-    return .{};
+fn static_div(a: anytype, b: anytype) if (numeric.is_static_int(@TypeOf(a)) and numeric.is_static_int(@TypeOf(b))) numeric.C(@divTrunc(numeric.value(a), numeric.value(b))) else @TypeOf(@divTrunc(numeric.value(a), numeric.value(b))) {
+    if (comptime numeric.is_static_int(@TypeOf(a)) and numeric.is_static_int(@TypeOf(b))) return .{};
+    return @divTrunc(numeric.value(a), numeric.value(b));
 }
 
-fn static_ceil_div(a: anytype, b: anytype) numeric.C(@divTrunc(numeric.value(a) + numeric.value(b) - 1, numeric.value(b))) {
-    return .{};
+fn static_ceil_div(a: anytype, b: anytype) if (numeric.is_static_int(@TypeOf(a)) and numeric.is_static_int(@TypeOf(b))) numeric.C(@divTrunc(numeric.value(a) + numeric.value(b) - 1, numeric.value(b))) else @TypeOf(@divTrunc(numeric.value(a) + numeric.value(b) - 1, numeric.value(b))) {
+    if (comptime numeric.is_static_int(@TypeOf(a)) and numeric.is_static_int(@TypeOf(b))) return .{};
+    return @divTrunc(numeric.value(a) + numeric.value(b) - 1, numeric.value(b));
 }
 
 fn make_compact_col_major_stride(shp: anytype) CompactStrideType(@TypeOf(shp)) {
@@ -1809,7 +1856,7 @@ pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
             return self.lhs.map(self.rhs.map(coord));
         }
         pub fn map_1d(self: Self, idx: usize) usize {
-            return self.lhs.map_1d(self.rhs.map_1d(idx));
+            return self.lhs.map(self.rhs.map_1d(idx));
         }
     };
 }
@@ -1844,4 +1891,15 @@ fn print_hierarchical(val: anytype) void {
     } else {
         std.debug.print("{}", .{val});
     }
+}
+
+test "row major map_1d inverts compact layout" {
+    const l = make_layout(
+        .{ @as(usize, 4), @as(usize, 4) },
+        .{ @as(isize, 4), @as(isize, 1) },
+    );
+
+    try std.testing.expectEqual(@as(usize, 0), l.map_1d(0));
+    try std.testing.expectEqual(@as(usize, 1), l.map_1d(1));
+    try std.testing.expectEqual(@as(usize, 4), l.map_1d(4)); // (1,0) in logical col-major -> physical 4 in row-major
 }

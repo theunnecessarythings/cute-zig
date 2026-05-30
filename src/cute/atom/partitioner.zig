@@ -12,7 +12,7 @@ pub inline fn partition(tensor: anytype, tv_layout: anytype, thread_id: usize) t
 
     // 2. Compose the tensor's layout with the thread's value layout
     const local_layout = layout_mod.composition(tensor.layout, sliced.layout);
-    const base_offset = tensor.layout.map_1d(sliced.offset);
+    const base_offset = tensor.layout.map(sliced.offset);
 
     return tensor_mod.make_tensor(tensor.ptr + base_offset, local_layout);
 }
