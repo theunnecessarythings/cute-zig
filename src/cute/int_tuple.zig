@@ -362,7 +362,7 @@ pub fn ceil_div(a: anytype, b: anytype) DivType(@TypeOf(a), @TypeOf(b), .ceil_di
     } else {
         const av = numeric.value(a);
         const bv = numeric.value(b);
-        return static_or_usize(TA, TB, @divTrunc(av + bv - 1, bv));
+        return static_or_usize(TA, TB, .ceil_div, @divTrunc(av + bv - 1, bv));
     }
 }
 
@@ -402,7 +402,7 @@ pub fn shape_div(a: anytype, b: anytype) DivType(@TypeOf(a), @TypeOf(b), .shape_
                 @compileError("shape_div static values must be weakly divisible");
             }
         };
-        return static_or_usize(TA, TB, @divTrunc(av + bv - 1, bv));
+        return static_or_usize(TA, TB, .shape_div, @divTrunc(av + bv - 1, bv));
     }
 }
 
@@ -534,23 +534,43 @@ fn ArithmeticType(comptime TA: type, comptime TB: type, comptime op: ArithmeticO
     return usize;
 }
 
-fn static_or_usize(comptime TA: type, comptime TB: type, result: anytype) DivType(TA, TB, .ceil_div) {
+fn static_or_usize(comptime TA: type, comptime TB: type, comptime op: DivOp, result: anytype) DivType(TA, TB, op) {
     if (comptime numeric.is_static_int(TA) and numeric.is_static_int(TB)) return .{};
     return @as(usize, @intCast(numeric.value(result)));
+}
+
+fn static_product_type(comptime T: type) comptime_int {
+    if (comptime is_tuple(T)) {
+        comptime var total: comptime_int = 1;
+        inline for (0..comptime rank(T)) |i| {
+            total *= static_product_type(child_type(T, i));
+        }
+        return total;
+    }
+    if (comptime numeric.is_static_int(T)) return T.static_value;
+    @compileError("static_product_type requires all-static shape");
 }
 
 fn div_tuple_by_scalar(comptime op: DivOp, a: anytype, b: anytype) DivType(@TypeOf(a), @TypeOf(b), op) {
     var result: DivType(@TypeOf(a), @TypeOf(b), op) = undefined;
     comptime var rest_value: ?comptime_int = if (numeric.is_static_int(@TypeOf(b))) @TypeOf(b).static_value else null;
+    var rest_runtime: usize = @as(usize, @intCast(numeric.value(b)));
+
     inline for (0..comptime rank(@TypeOf(a))) |i| {
-        const rest = if (comptime rest_value) |v| numeric.C(v){} else b;
+        const rest = if (comptime rest_value) |v| numeric.C(v){} else rest_runtime;
         result[i] = switch (op) {
             .ceil_div => ceil_div(a[i], rest),
             .round_up => round_up(a[i], rest),
             .shape_div => shape_div(a[i], rest),
         };
-        comptime if (rest_value != null and numeric.is_static_int(@TypeOf(a[i]))) {
-            const ai = @TypeOf(a[i]).static_value;
+
+        const ai_runtime = product(a[i]);
+        if (comptime rest_value == null) {
+            rest_runtime = @divTrunc(rest_runtime + ai_runtime - 1, ai_runtime);
+        }
+
+        comptime if (rest_value != null) {
+            const ai = static_product_type(@TypeOf(a[i]));
             rest_value = switch (op) {
                 .ceil_div, .round_up => @divTrunc(rest_value.? + ai - 1, ai),
                 .shape_div => blk: {
@@ -664,6 +684,12 @@ test "integer tuple division and compatibility basics" {
     try std.testing.expectEqual(@as(comptime_int, 1), numeric.value(div[0]));
     try std.testing.expectEqual(@as(comptime_int, 1), numeric.value(div[1]));
     try std.testing.expectEqual(@as(comptime_int, 3), numeric.value(div[2]));
+
+    const b: usize = 40;
+    const runtime_div = shape_div(.{ numeric._4, numeric._5, numeric._6 }, b);
+    try std.testing.expectEqual(@as(usize, 1), runtime_div[0]);
+    try std.testing.expectEqual(@as(usize, 1), runtime_div[1]);
+    try std.testing.expectEqual(@as(usize, 3), runtime_div[2]);
 
     try std.testing.expect(weakly_congruent(.{ numeric._2, numeric._3 }, .{ numeric._4, numeric._5 }));
     try std.testing.expect(!weakly_congruent(.{ numeric._2, .{ numeric._3 } }, .{ numeric._2, numeric._3 }));

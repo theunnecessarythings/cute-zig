@@ -125,6 +125,10 @@ pub fn SwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
             return self.layout.size();
         }
 
+        pub fn cosize(self: Self) usize {
+            return self.layout.cosize();
+        }
+
         /// Slicing a SwizzleLayout must preserve the original pre-swizzle base
         /// offset. Applying the swizzle after pointer bumping is wrong for XOR
         /// layouts because `swizzle(base + local) != base + swizzle(local)`.
@@ -175,6 +179,10 @@ pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type
 
         pub fn size(self: Self) usize {
             return self.layout.size();
+        }
+
+        pub fn cosize(self: Self) usize {
+            return self.layout.cosize();
         }
 
         pub fn slice_and_offset(self: Self, coord: anytype) struct {

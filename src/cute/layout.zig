@@ -417,6 +417,20 @@ fn min_abs_stride(strd: anytype) usize {
     return if (iv >= 0) @as(usize, @intCast(iv)) else @as(usize, @intCast(-iv));
 }
 
+fn is_zero_stride(strd: anytype) bool {
+    const T = @TypeOf(strd);
+    if (comptime is_scaled_basis(T)) {
+        return is_zero_stride(strd.value);
+    }
+    if (comptime int_tuple.is_tuple(T)) {
+        inline for (0..comptime int_tuple.rank(T)) |i| {
+            if (!is_zero_stride(strd[i])) return false;
+        }
+        return true;
+    }
+    return numeric.value(strd) == 0;
+}
+
 pub fn idx2crd(idx: anytype, shp: anytype, strd: anytype) Idx2CrdType(@TypeOf(idx), @TypeOf(shp), @TypeOf(strd)) {
     return idx2crd_impl(@as(usize, @intCast(numeric.value(idx))), shp, strd).coord;
 }
@@ -439,8 +453,15 @@ fn idx2crd_impl(idx: usize, shp: anytype, strd: anytype) struct { coord: Idx2Crd
         // We use a simple insertion sort for small R.
         for (0..R) |i| {
             for (i + 1..R) |j| {
-                // Tie-break equal strides by processing higher-indexed modes first (row-major-like).
-                if (strides[p[j]] < strides[p[i]] or (strides[p[j]] == strides[p[i]] and p[j] > p[i])) {
+                const sj = strides[p[j]];
+                const si = strides[p[i]];
+                const j_zero = sj == 0;
+                const i_zero = si == 0;
+                // Decompose in increasing order of non-zero absolute strides.
+                // Zero-stride modes are pushed to the end.
+                if ((!j_zero and i_zero) or
+                    (!j_zero and !i_zero and (sj < si or (sj == si and p[j] > p[i]))))
+                {
                     const tmp = p[i];
                     p[i] = p[j];
                     p[j] = tmp;
@@ -463,6 +484,11 @@ fn idx2crd_impl(idx: usize, shp: anytype, strd: anytype) struct { coord: Idx2Crd
     }
     const s = min_abs_stride(strd);
     const extent = @as(usize, @intCast(numeric.value(shp)));
+    if (s == 0) {
+        // Canonical inverse for a broadcast dimension.
+        // It maps every logical index to coordinate 0 and leaves the remainder untouched.
+        return .{ .coord = @as(usize, 0), .remainder = idx };
+    }
     const val = (idx / s) % extent;
     return .{ .coord = val, .remainder = idx - val * s };
 }
@@ -1369,8 +1395,17 @@ fn raked_product_stride(block: anytype, tiler: anytype) @TypeOf(.{
     };
 }
 
-fn product_outer_stride(block: anytype, tiler: anytype) numeric.C(@as(comptime_int, int_tuple.size(block.shape)) * numeric.value(tiler.stride)) {
-    return .{};
+fn ProductOuterStrideType(comptime BlockT: type, comptime TilerT: type) type {
+    if (comptime all_static_ints(BlockT.ShapeType) and numeric.is_static_int(TilerT.StrideType)) {
+        return numeric.C(@as(comptime_int, @intCast(static_product_type(BlockT.ShapeType))) * TilerT.StrideType.static_value);
+    }
+    return usize;
+}
+
+fn product_outer_stride(block: anytype, tiler: anytype) ProductOuterStrideType(@TypeOf(block), @TypeOf(tiler)) {
+    const OutT = ProductOuterStrideType(@TypeOf(block), @TypeOf(tiler));
+    if (comptime numeric.is_static_int(OutT)) return .{};
+    return @as(usize, @intCast(int_tuple.size(block.shape))) * @as(usize, @intCast(numeric.value(tiler.stride)));
 }
 
 fn logical_divide_rank1_shape(l: anytype, tiler: anytype) @TypeOf(.{
@@ -1855,8 +1890,16 @@ pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
         }
         pub fn size(self: Self) usize { return self.rhs.size(); }
         pub fn cosize(self: Self) usize {
-            if (self.rhs.size() == 0) return 0;
-            return self.lhs.map_1d(self.rhs.cosize() - 1) + 1;
+            const sz = self.size();
+            if (sz == 0) return 0;
+            var max_offset: usize = 0;
+            const compact_stride = make_compact_col_major_stride(self.rhs.shape);
+            for (0..sz) |i| {
+                const coord = idx2crd(i, self.rhs.shape, compact_stride);
+                const off = self.map(coord);
+                if (off > max_offset) max_offset = off;
+            }
+            return max_offset + 1;
         }
         pub fn map(self: Self, coord: anytype) usize {
             return self.lhs.map(self.rhs.map(coord));
@@ -1957,4 +2000,40 @@ test "make_layout_col_major handles runtime and static values safely" {
     const l2 = make_layout_col_major(n._32, n._64);
     try std.testing.expectEqual(@as(usize, 32), n.value(l2.shape[0]));
     try std.testing.expectEqual(@as(usize, 32), @as(usize, @intCast(n.value(l2.stride[1]))));
+}
+
+test "map_1d handles zero-stride extent-one modes" {
+    const n = numeric;
+    const l = make_layout(n._6, n._1);
+    const tile = make_layout(n._6, n._1);
+    const divided = logical_divide(l, tile);
+
+    // divided should have shape (6, 1) and stride (1, 0)
+    try std.testing.expectEqual(@as(usize, 6), numeric.value(divided.shape[0]));
+    try std.testing.expectEqual(@as(usize, 1), numeric.value(divided.shape[1]));
+    try std.testing.expectEqual(@as(usize, 1), numeric.value(divided.stride[0]));
+    try std.testing.expectEqual(@as(usize, 0), numeric.value(divided.stride[1]));
+
+    try std.testing.expectEqual(@as(usize, 0), divided.map_1d(0));
+    try std.testing.expectEqual(@as(usize, 5), divided.map_1d(5));
+}
+
+test "composed cosize uses max over actual rhs domain" {
+    const lhs = make_layout(@as(usize, 100), @as(usize, 1));
+    const rhs = make_layout(.{ @as(usize, 2), @as(usize, 2) }, .{ @as(isize, 10), @as(isize, 0) });
+    const c = composition(lhs, rhs);
+
+    try std.testing.expectEqual(@as(usize, 11), c.cosize());
+}
+
+test "blocked_product supports runtime block shape" {
+    const m: usize = 2;
+    const n: usize = 4;
+    const t: usize = 3;
+
+    const block = make_layout(.{ m, n }, .{ @as(usize, 1), @as(usize, 2) });
+    const tiler = make_layout(t, @as(usize, 1));
+    const blocked = blocked_product(block, tiler);
+
+    try std.testing.expectEqual(@as(usize, 8), blocked.stride[0][1]);
 }
