@@ -178,15 +178,19 @@ fn AsyncGlobalToSharedWrapper(comptime inst: types.CopyInst) type {
                 },
                 .cp_async_zero_fill => {
                     const src_size: u32 = if (pred) (inst.copy_bytes orelse 0) else 0;
-                    asm volatile (inst.ptx
-                        :
-                        : [d0] "r" (@as(u32, @intCast(@intFromPtr(dst)))),
-                          [s0] "l" (@intFromPtr(src)),
-                          [size] "n" (inst.copy_bytes orelse 0),
-                          [zfill] "r" (src_size),
-                        : .{ .memory = true });
+                    copy_zfill(inst, src, dst, src_size);
                 },
             }
+        }
+
+        pub inline fn copy_zfill(comptime inst_ptr: types.CopyInst, src: SRegisters, dst: DRegisters, valid_bytes: u32) void {
+            asm volatile (inst_ptr.ptx
+                :
+                : [d0] "r" (@as(u32, @intCast(@intFromPtr(dst)))),
+                  [s0] "l" (@intFromPtr(src)),
+                  [size] "n" (inst_ptr.copy_bytes orelse 0),
+                  [zfill] "r" (valid_bytes),
+                : .{ .memory = true });
         }
     };
 }

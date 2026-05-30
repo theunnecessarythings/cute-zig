@@ -5,6 +5,16 @@ const cute = @import("cute");
 var smem_A: [16 * 16]f16 align(16) addrspace(.shared) = undefined;
 var smem_B: [16 * 8]f16 align(16) addrspace(.shared) = undefined;
 
+fn DummyTensor(comptime PtrT: type, comptime count: usize) type {
+    return struct {
+        ptr: PtrT,
+        pub inline fn size(self: @This()) usize {
+            _ = self;
+            return count;
+        }
+    };
+}
+
 /// SM80 SGEMM Kernel using CuTe-Zig.
 pub fn sgemm_sm80(
     ptr_A: [*]addrspace(.global) const f16,
@@ -61,30 +71,46 @@ pub fn sgemm_sm80(
 
     const k_tiles = (K + 15) / 16;
     for (0..k_tiles) |k_tile| {
-        // --- 5. Global -> Shared using cp.async ---
+        // --- 5. Global -> Shared using cp.async with tail-safe zfill (via CopyAtom) ---
         const async_op_A = arch_db.copy_sm80.SM80_CP_ASYNC_CACHEALWAYS_ZFILL_16B;
-        const AsyncImplA = cute.arch.builders.Copy(async_op_A);
+        const async_traits_A = atom_db.copy_traits_sm80.SM80_CP_ASYNC_CACHEALWAYS_ZFILL_16B;
+        const AsyncAtomA = cute.atom.builders.CopyAtom(async_op_A, async_traits_A);
 
-        // Load A: 16x16, 32 threads. each thread 8 elements (16B).
         const t_offset_A = thread_id * 8;
-        const am = t_offset_A / 16; // correct mapping: am advances along rows
-        const ak = t_offset_A % 16; // ak advances along columns
-        const pred_A = (block_m * 16 + am < M) and (k_tile * 16 + ak < K);
-        const g_ptr_A = ptr_A + (block_m * 16 + am) * K + (k_tile * 16 + ak);
-        const s_ptr_A = @as([*]addrspace(.shared) u8, @ptrCast(&smem_A)) + (am * 16 + ak) * 2;
-        AsyncImplA.copy(@as([*]addrspace(.global) const u8, @ptrCast(g_ptr_A)), @as([*]addrspace(.shared) u8, @ptrCast(s_ptr_A)), pred_A);
+        const am = t_offset_A / 16;
+        const ak = t_offset_A % 16;
 
-        // Load B: 16x8, 32 threads. each thread 4 elements (8B).
+        const global_k_A = k_tile * 16 + ak;
+        const remaining_A = if (K > global_k_A) K - global_k_A else 0;
+        const valid_A_elems = @min(@as(usize, 8), remaining_A);
+        const valid_A_bytes: u32 = @intCast(valid_A_elems * 2);
+
+        const g_ptr_A = ptr_A + (block_m * 16 + am) * K + global_k_A;
+        const s_ptr_A = @as([*]addrspace(.shared) u8, @ptrCast(&smem_A)) + (am * 16 + ak) * 2;
+
+        const src_tensor_A = DummyTensor([*]addrspace(.global) const f16, 8){ .ptr = @ptrCast(@alignCast(g_ptr_A)) };
+        const dst_tensor_A = DummyTensor([*]addrspace(.shared) f16, 8){ .ptr = @ptrCast(@alignCast(s_ptr_A)) };
+        AsyncAtomA.copy_zfill(src_tensor_A, dst_tensor_A, if (block_m * 16 + am < M) valid_A_bytes else 0);
+
         const async_op_B = arch_db.copy_sm80.SM80_CP_ASYNC_CACHEALWAYS_ZFILL_8B;
-        const AsyncImplB = cute.arch.builders.Copy(async_op_B);
+        const async_traits_B = atom_db.copy_traits_sm80.SM80_CP_ASYNC_CACHEALWAYS_ZFILL_8B;
+        const AsyncAtomB = cute.atom.builders.CopyAtom(async_op_B, async_traits_B);
 
         const t_offset_B = thread_id * 4;
         const bk = t_offset_B % 16;
         const bn = t_offset_B / 16;
-        const pred_B = (block_n * 8 + bn < N) and (k_tile * 16 + bk < K);
-        const g_ptr_B = ptr_B + (block_n * 8 + bn) * K + (k_tile * 16 + bk);
+
+        const global_k_B = k_tile * 16 + bk;
+        const remaining_B = if (K > global_k_B) K - global_k_B else 0;
+        const valid_B_elems = @min(@as(usize, 4), remaining_B);
+        const valid_B_bytes: u32 = @intCast(valid_B_elems * 2);
+
+        const g_ptr_B = ptr_B + (block_n * 8 + bn) * K + global_k_B;
         const s_ptr_B = @as([*]addrspace(.shared) u8, @ptrCast(&smem_B)) + (bn * 16 + bk) * 2;
-        AsyncImplB.copy(@as([*]addrspace(.global) const u8, @ptrCast(g_ptr_B)), @as([*]addrspace(.shared) u8, @ptrCast(s_ptr_B)), pred_B);
+
+        const src_tensor_B = DummyTensor([*]addrspace(.global) const f16, 4){ .ptr = @ptrCast(@alignCast(g_ptr_B)) };
+        const dst_tensor_B = DummyTensor([*]addrspace(.shared) f16, 4){ .ptr = @ptrCast(@alignCast(s_ptr_B)) };
+        AsyncAtomB.copy_zfill(src_tensor_B, dst_tensor_B, if (block_n * 8 + bn < N) valid_B_bytes else 0);
 
         cute.arch.util.cp_async_fence();
         cute.arch.util.cp_async_wait_all();

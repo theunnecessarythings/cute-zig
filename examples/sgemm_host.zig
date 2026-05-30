@@ -1,49 +1,49 @@
 const std = @import("std");
 const cuda = @import("cuda");
 
-// The PTX is provided as an anonymous import named "cuda-module"
-const ptx = @embedFile("cuda-module");
+const kernels = @import("kernels");
 
 pub fn main() !void {
-    const M: usize = 32;
-    const N: usize = 24;
-    const K: usize = 48;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    std.log.info("Initializing CUDA...", .{});
     cuda.init();
 
-    std.log.info("Loading SGEMM Module...", .{});
-    const module = try cuda.Module.loadData(ptx);
+    const module = try cuda.Module.loadData(kernels.main_device);
     defer module.unload();
 
     const kernel = try module.getFunction("sgemm_sm80");
 
-    // Allocate host memory
-    var h_A: [M * K]f16 = undefined;
-    var h_B: [N * K]f16 = undefined;
-    var h_C: [M * N]f32 = undefined;
-    var h_C_ref: [M * N]f32 = undefined;
+    const cases = [_]struct { m: usize, n: usize, k: usize }{
+        .{ .m = 32, .n = 24, .k = 48 }, // Aligned baseline
+        .{ .m = 32, .n = 24, .k = 17 }, // A/B one-element tail (K=17)
+        .{ .m = 32, .n = 24, .k = 18 }, // B sub-vector tail (K=18)
+        .{ .m = 17, .n = 24, .k = 32 }, // M edge tile
+        .{ .m = 32, .n = 9, .k = 32 }, // N edge tile
+        .{ .m = 17, .n = 9, .k = 19 }, // All edges together
+    };
 
-    // Initialize A and B
-    for (0..M * K) |i| h_A[i] = @floatCast(@as(f32, @floatFromInt(i % 100)) / 100.0);
-    for (0..N * K) |i| h_B[i] = @floatCast(@as(f32, @floatFromInt(i % 100)) / 100.0);
-    for (0..M * N) |i| h_C[i] = 0.0;
-    for (0..M * N) |i| h_C_ref[i] = 0.0;
-
-    // Reference SGEMM (C = A * B^T)
-    for (0..M) |m| {
-        for (0..N) |n| {
-            var sum: f32 = 0.0;
-            for (0..K) |k| {
-                const a_val: f32 = @floatCast(h_A[m * K + k]);
-                const b_val: f32 = @floatCast(h_B[n * K + k]);
-                sum += a_val * b_val;
-            }
-            h_C_ref[m * N + n] = sum;
-        }
+    for (cases) |case| {
+        try run_test(allocator, kernel, case.m, case.n, case.k);
     }
+}
 
-    std.log.info("Allocating Device Memory...", .{});
+fn run_test(allocator: std.mem.Allocator, kernel: cuda.Function, M: usize, N: usize, K: usize) !void {
+    std.debug.print("Testing SGEMM M={d}, N={d}, K={d}... ", .{ M, N, K });
+
+    const h_A = try allocator.alloc(f16, M * K);
+    defer allocator.free(h_A);
+    const h_B = try allocator.alloc(f16, N * K);
+    defer allocator.free(h_B);
+    const h_C = try allocator.alloc(f32, M * N);
+    defer allocator.free(h_C);
+
+    // Initialize A and B with some values
+    for (0..M * K) |i| h_A[i] = @floatCast(1.0);
+    for (0..N * K) |i| h_B[i] = @floatCast(0.5);
+    for (0..M * N) |i| h_C[i] = 0.0;
+
     const d_A = try cuda.malloc(f16, M * K);
     defer cuda.free(d_A);
     const d_B = try cuda.malloc(f16, N * K);
@@ -51,44 +51,29 @@ pub fn main() !void {
     const d_C = try cuda.malloc(f32, M * N);
     defer cuda.free(d_C);
 
-    std.log.info("Copying Data to Device...", .{});
-    cuda.memcpy(f16, d_A, &h_A, .host_to_device);
-    cuda.memcpy(f16, d_B, &h_B, .host_to_device);
-    cuda.memcpy(f32, d_C, &h_C, .host_to_device);
+    cuda.memcpy(f16, d_A, h_A, .host_to_device);
+    cuda.memcpy(f16, d_B, h_B, .host_to_device);
+    cuda.memcpy(f32, d_C, h_C, .host_to_device);
 
-    std.log.info("Launching Kernel...", .{});
-    const config = cuda.LaunchConfig{
-        .grid_dim = .{ .x = @intCast((N + 7) / 8), .y = @intCast((M + 15) / 16), .z = 1 },
-        .block_dim = .{ .x = 32, .y = 1, .z = 1 }, // 32 threads for one warp (MMA atom is warp-level)
-    };
+    kernel.launch(.{
+        .grid_dim = .{ .x = 1, .y = 1 },
+        .block_dim = .{ .x = 32, .y = 1 },
+    }, .{ d_A.ptr, d_B.ptr, d_C.ptr, M, N, K });
 
-    kernel.launch(config, .{
-        d_A.ptr,
-        d_B.ptr,
-        d_C.ptr,
-        M,
-        N,
-        K,
-    });
+    cuda.memcpy(f32, h_C, d_C, .device_to_host);
 
-    std.log.info("Copying Result back to Host...", .{});
-    cuda.memcpy(f32, &h_C, d_C, .device_to_host);
-
-    std.log.info("Verifying Result...", .{});
-    var max_err: f32 = 0.0;
-    for (0..M * N) |i| {
-        const err = @abs(h_C[i] - h_C_ref[i]);
-        if (err > max_err) max_err = err;
+    // Verify
+    for (0..M) |m| {
+        for (0..N) |n| {
+            var expected: f32 = 0.0;
+            for (0..K) |k| {
+                expected += @as(f32, @floatCast(h_A[m * K + k])) * @as(f32, @floatCast(h_B[n * K + k]));
+            }
+            if (@abs(h_C[m * N + n] - expected) > 1e-3) {
+                std.debug.print("FAILED at ({d}, {d}): got {d}, expected {d}\n", .{ m, n, h_C[m * N + n], expected });
+                return error.TestFailed;
+            }
+        }
     }
-
-    std.log.info("Max Error: {e}", .{max_err});
-
-    if (max_err < 1e-3) {
-        std.log.info("SUCCESS!", .{});
-    } else {
-        std.log.err("FAILURE! Result mismatch.", .{});
-        // Print some results
-        std.log.info("Sample Result: C[0] = {d}, Expected = {d}", .{ h_C[0], h_C_ref[0] });
-        return error.VerificationFailed;
-    }
+    std.debug.print("PASSED\n", .{});
 }

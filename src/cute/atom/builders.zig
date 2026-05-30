@@ -207,8 +207,26 @@ pub fn CopyAtom(comptime inst: anytype, comptime traits: anytype) type {
                     const d_ptr = @as([*]addrspace(.shared) u8, @ptrCast(dst.ptr));
                     atom_op.copy(s_regs, d_ptr, pred);
                 },
+                .gmem_to_smem_async => {
+                    const s_ptr = @as([*]addrspace(.global) const u8, @ptrCast(src.ptr));
+                    const d_ptr = @as([*]addrspace(.shared) u8, @ptrCast(dst.ptr));
+                    atom_op.copy(s_ptr, d_ptr, pred);
+                },
                 else => @compileError("CopyAtom kind not yet implemented"),
             }
+        }
+
+        pub inline fn copy_zfill(src: anytype, dst: anytype, valid_bytes: u32) void {
+            const arch_builders = @import("../arch/builders.zig");
+            const atom_op = arch_builders.Copy(Op);
+
+            comptime if (Op.kind != .gmem_to_smem_async) {
+                @compileError("copy_zfill is only supported for gmem_to_smem_async");
+            };
+
+            const s_ptr = @as([*]addrspace(.global) const u8, @ptrCast(src.ptr));
+            const d_ptr = @as([*]addrspace(.shared) u8, @ptrCast(dst.ptr));
+            atom_op.copy_zfill(Op, s_ptr, d_ptr, valid_bytes);
         }
     };
 }
