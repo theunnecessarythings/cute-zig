@@ -23,9 +23,19 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
             return self.layout.map(coord);
         }
 
+        pub fn offset_ptr(self: Self, offset: usize) PtrType {
+            if (T == u1) {
+                const ptr_info_ = @typeInfo(PtrType).pointer;
+                const BytePtrT = [*]addrspace(ptr_info_.address_space) u8;
+                const byte_ptr = @as(BytePtrT, @ptrCast(self.ptr));
+                return @as(PtrType, @ptrCast(byte_ptr + (offset / 8)));
+            }
+            return self.ptr + offset;
+        }
+
         /// Get a pointer to the element at the given coordinate.
         pub fn ptr_at(self: Self, coord: anytype) PtrType {
-            return self.ptr + self.map(coord);
+            return self.offset_ptr(self.map(coord));
         }
 
         /// Read the value at the given coordinate.
@@ -84,7 +94,48 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
         pub fn flatten(self: Self) @TypeOf(make_tensor(self.ptr, layout_mod.flatten_layout(self.layout))) {
             return make_tensor(self.ptr, layout_mod.flatten_layout(self.layout));
         }
+
+        pub fn elementType(self: Self) type {
+            _ = self;
+            return T;
+        }
     };
+}
+
+fn tensorChild(comptime TensorT: type) type {
+    const PtrT = @typeInfo(TensorT).@"struct".fields[0].type;
+    return @typeInfo(PtrT).pointer.child;
+}
+
+fn elementBits(comptime T: type) usize {
+    if (T == u1) return 1;
+    return @sizeOf(T) * 8;
+}
+
+pub fn recast(comptime NewT: type, tensor: anytype) @TypeOf(blk: {
+    const TensorT = @TypeOf(tensor);
+    const ptr_info = @typeInfo(@FieldType(TensorT, "ptr")).pointer;
+    const NewPtrT = [*]addrspace(ptr_info.address_space) NewT;
+    const src_bits = if (ptr_info.child == u1) @as(usize, 1) else @as(usize, @sizeOf(ptr_info.child) * 8);
+    const dst_bits = if (NewT == u1) @as(usize, 1) else @as(usize, @sizeOf(NewT) * 8);
+    break :blk make_tensor(
+        @as(NewPtrT, @ptrCast(tensor.ptr)),
+        layout_mod.recast_layout(src_bits, dst_bits, @as(@FieldType(TensorT, "layout"), undefined)),
+    );
+}) {
+    const TensorT = @TypeOf(tensor);
+    const ptr_info = @typeInfo(@FieldType(TensorT, "ptr")).pointer;
+    const NewPtrT = [*]addrspace(ptr_info.address_space) NewT;
+    const src_bits = comptime if (ptr_info.child == u1) @as(usize, 1) else @as(usize, @sizeOf(ptr_info.child) * 8);
+    const dst_bits = comptime if (NewT == u1) @as(usize, 1) else @as(usize, @sizeOf(NewT) * 8);
+    return make_tensor(
+        @as(NewPtrT, @ptrCast(tensor.ptr)),
+        layout_mod.recast_layout(src_bits, dst_bits, tensor.layout),
+    );
+}
+
+pub fn recast_bits(tensor: anytype) @TypeOf(recast(u1, tensor)) {
+    return recast(u1, tensor);
 }
 
 test "tensor reshape basics" {

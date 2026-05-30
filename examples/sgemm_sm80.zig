@@ -121,8 +121,8 @@ pub fn sgemm_sm80(
         const ld_traits = atom_db.copy_traits_sm75.SM75_U32x4_LDSM_N;
         const LdAtom = cute.atom.builders.CopyAtom(ld_op, ld_traits);
 
-        const ld_thr_sA = LdAtom.partition_S(.{}, sA, thread_id);
-        const ld_thr_rA = LdAtom.partition_D(.{}, thr_rA, thread_id);
+        const ld_thr_sA = LdAtom.partition_S(.{}, cute.tensor.recast_bits(sA), thread_id);
+        const ld_thr_rA = LdAtom.partition_D(.{}, cute.tensor.recast_bits(thr_rA), thread_id);
         LdAtom.copy(ld_thr_sA, ld_thr_rA);
 
         // For B, just elementwise copy

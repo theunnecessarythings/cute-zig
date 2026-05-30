@@ -331,6 +331,43 @@ pub fn flatten_layout(l: anytype) @TypeOf(make_layout(
     return make_layout(int_tuple.flatten(l.shape), int_tuple.flatten(l.stride));
 }
 
+pub fn RecastLayoutType(comptime src_bits: usize, comptime dst_bits: usize, comptime LayoutT: type) type {
+    if (comptime src_bits == dst_bits) return LayoutT;
+    if (comptime src_bits > dst_bits) {
+        const split = src_bits / dst_bits;
+        return @TypeOf(make_layout(
+            .{ wrap_static_ints(split), @as(LayoutT.ShapeType, undefined) },
+            .{ wrap_static_ints(1), wrap_static_ints(int_tuple.mul(split, @as(LayoutT.StrideType, undefined))) },
+        ));
+    } else {
+        const group = dst_bits / src_bits;
+        const Tiler = @TypeOf(wrap_static_ints(group));
+        const L1 = LogicalDivideType(LayoutT, Tiler);
+        const L2 = @TypeOf(layout_mode_type_value(L1, 1));
+        return @TypeOf(make_layout(
+            @as(L2.ShapeType, undefined),
+            @as(@TypeOf(static_div(@as(L2.StrideType, undefined), wrap_static_ints(group))), undefined),
+        ));
+    }
+}
+
+pub fn recast_layout(comptime src_bits: usize, comptime dst_bits: usize, layout: anytype) RecastLayoutType(src_bits, dst_bits, @TypeOf(layout)) {
+    if (comptime src_bits == dst_bits) return layout;
+
+    if (comptime src_bits > dst_bits) {
+        const split = src_bits / dst_bits;
+        return make_layout(
+            .{ wrap_static_ints(split), layout.shape },
+            .{ wrap_static_ints(1), wrap_static_ints(int_tuple.mul(split, layout.stride)) },
+        );
+    } else {
+        const group = dst_bits / src_bits;
+        const divided = logical_divide(layout, wrap_static_ints(group));
+        const mode1 = layout_mode_at(divided, 1);
+        return make_layout(mode1.shape, static_div(mode1.stride, wrap_static_ints(group)));
+    }
+}
+
 pub fn coalesce(l: anytype) CoalescedLayoutType(@TypeOf(l)) {
     comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
         @compileError("coalesce does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);

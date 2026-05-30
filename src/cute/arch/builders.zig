@@ -184,6 +184,9 @@ fn AsyncGlobalToSharedWrapper(comptime inst: types.CopyInst) type {
         }
 
         pub inline fn copy_zfill(comptime inst_ptr: types.CopyInst, src: SRegisters, dst: DRegisters, valid_bytes: u32) void {
+            if (valid_bytes > (inst_ptr.copy_bytes orelse 0)) {
+                @panic("cp.async valid_bytes exceeds copy size");
+            }
             asm volatile (inst_ptr.ptx
                 :
                 : [d0] "r" (@as(u32, @intCast(@intFromPtr(dst)))),

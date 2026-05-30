@@ -14,5 +14,5 @@ pub inline fn partition(tensor: anytype, tv_layout: anytype, thread_id: usize) t
     const local_layout = layout_mod.composition(tensor.layout, sliced.layout);
     const base_offset = tensor.layout.map(sliced.offset);
 
-    return tensor_mod.make_tensor(tensor.ptr + base_offset, local_layout);
+    return tensor_mod.make_tensor(tensor.offset_ptr(base_offset), local_layout);
 }

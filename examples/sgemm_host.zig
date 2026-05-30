@@ -56,7 +56,10 @@ fn run_test(allocator: std.mem.Allocator, kernel: cuda.Function, M: usize, N: us
     cuda.memcpy(f32, d_C, h_C, .host_to_device);
 
     kernel.launch(.{
-        .grid_dim = .{ .x = 1, .y = 1 },
+        .grid_dim = .{
+            .x = @intCast((N + 7) / 8),
+            .y = @intCast((M + 15) / 16),
+        },
         .block_dim = .{ .x = 32, .y = 1 },
     }, .{ d_A.ptr, d_B.ptr, d_C.ptr, M, N, K });
 

@@ -66,10 +66,15 @@ fn tensorChild(comptime TensorT: type) type {
 fn validateRegisterTensor(comptime role: []const u8, tensor: anytype, comptime Registers: type) void {
     const Expected = registerChild(Registers);
     const Actual = tensorChild(@TypeOf(tensor));
-    comptime if (Actual != Expected) {
-        @compileError(role ++ " register element type mismatch");
+    comptime if (Actual != u1 and Actual != Expected) {
+        @compileError(role ++ " register element type mismatch: expected " ++ @typeName(Expected) ++ ", got " ++ @typeName(Actual));
     };
-    if (tensor.size() != registerLen(Registers)) @panic(role ++ " register tensor has wrong element count");
+    if (Actual == u1) {
+        const expected_bits = registerLen(Registers) * @sizeOf(Expected) * 8;
+        if (tensor.size() != expected_bits) @panic(role ++ " bit-tensor has wrong bit count");
+    } else {
+        if (tensor.size() != registerLen(Registers)) @panic(role ++ " register tensor has wrong element count");
+    }
 }
 
 pub fn MmaAtom(comptime inst: anytype, comptime traits: anytype) type {

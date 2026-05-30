@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
 
     // --- Build & Test Step ---
     const test_step = b.step("test", "Run all library and device-assembly tests");
+    const gpu_test_step = b.step("test-gpu-sgemm", "Run SGEMM numerical GPU tests (requires GPU)");
 
     // 1. Host-side Parity & Unit Tests
     const host_tests = .{
@@ -45,6 +46,7 @@ pub fn build(b: *std.Build) void {
     // Add multiple files/kernels with a single call per file
     registry.add("tests/device/sm75_movmatrix_check.zig", "sm_75") catch unreachable;
     registry.add("tests/device/sm75_ldmatrix_check.zig", "sm_75") catch unreachable;
+    registry.add("tests/device/ldsm_partition_test.zig", "sm_75") catch unreachable;
     registry.add("tests/device/sm90_stmatrix_check.zig", "sm_90") catch unreachable;
     registry.add("tests/device/sm80_cp_async_check.zig", "sm_80") catch unreachable;
     registry.add("examples/main_device.zig", "sm_80") catch unreachable;
@@ -74,6 +76,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(sgemm_exe);
     const run_sgemm = b.addRunArtifact(sgemm_exe);
     b.step("run-sgemm", "Run the SGEMM SM80 example on GPU").dependOn(&run_sgemm.step);
+    gpu_test_step.dependOn(&run_sgemm.step);
 
     // 5. Compile-fail regression tests
     const compile_fail_cases = [_]struct { source: []const u8, expect: []const u8 }{
