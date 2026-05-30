@@ -120,7 +120,7 @@ pub fn static_product(t: anytype) StaticProductType(@TypeOf(t)) {
     }
 }
 
-fn StaticProductType(comptime T: type) type {
+pub fn StaticProductType(comptime T: type) type {
     if (comptime is_tuple(T)) {
         const R = rank(T);
         if (R == 0) return @TypeOf(numeric._1);
@@ -279,7 +279,7 @@ pub fn take(comptime begin: usize, comptime end: usize, t: anytype) TakeType(beg
     return result;
 }
 
-fn TakeType(comptime begin: usize, comptime end: usize, comptime T: type) type {
+pub fn TakeType(comptime begin: usize, comptime end: usize, comptime T: type) type {
     comptime if (end < begin) @compileError("take end must be >= begin");
     const N = end - begin;
     comptime var fields: [N]type = undefined;
@@ -531,7 +531,7 @@ fn arithmetic(a: anytype, b: anytype, comptime op: ArithmeticOp) ArithmeticType(
     };
 }
 
-fn ArithmeticType(comptime TA: type, comptime TB: type, comptime op: ArithmeticOp) type {
+pub fn ArithmeticType(comptime TA: type, comptime TB: type, comptime op: ArithmeticOp) type {
     if (comptime is_tuple(TA) or is_tuple(TB)) {
         const R = comptime @max(if (is_tuple(TA)) rank(TA) else 1, if (is_tuple(TB)) rank(TB) else 1);
         const A = AppendToRankType(R, TA, @TypeOf(numeric._0));
@@ -587,7 +587,12 @@ fn div_tuple_by_scalar(comptime op: DivOp, a: anytype, b: anytype) DivType(@Type
     var rest_runtime: usize = @as(usize, @intCast(numeric.value(b)));
 
     inline for (0..comptime rank(@TypeOf(a))) |i| {
-        const rest = if (comptime rest_value) |v| numeric.C(v){} else rest_runtime;
+        const use_static_rest = comptime rest_value != null and numeric.is_static_int(@TypeOf(a[i]));
+        const rest = if (use_static_rest)
+            numeric.C(rest_value.?){}
+        else
+            rest_runtime;
+
         result[i] = switch (op) {
             .ceil_div => ceil_div(a[i], rest),
             .round_up => round_up(a[i], rest),
@@ -595,12 +600,12 @@ fn div_tuple_by_scalar(comptime op: DivOp, a: anytype, b: anytype) DivType(@Type
         };
 
         const ai_runtime = product(a[i]);
-        if (comptime rest_value == null) {
+        if (!use_static_rest) {
             rest_runtime = @divTrunc(rest_runtime + ai_runtime - 1, ai_runtime);
         }
 
-        comptime if (rest_value != null) {
-            const ai = static_product_type(@TypeOf(a[i]));
+        if (comptime use_static_rest) {
+            const ai = comptime StaticProductType(@TypeOf(a[i])).static_value;
             rest_value = switch (op) {
                 .ceil_div, .round_up => @divTrunc(rest_value.? + ai - 1, ai),
                 .shape_div => blk: {
@@ -610,7 +615,10 @@ fn div_tuple_by_scalar(comptime op: DivOp, a: anytype, b: anytype) DivType(@Type
                     break :blk @divTrunc(rest_value.? + ai - 1, ai);
                 },
             };
-        };
+            rest_runtime = @as(usize, @intCast(rest_value.?));
+        } else {
+            rest_value = null;
+        }
     }
     return result;
 }
@@ -710,11 +718,19 @@ test "integer tuple division and compatibility basics" {
     try std.testing.expectEqual(@as(comptime_int, 8), numeric.value(round_up(numeric._5, numeric._4)));
     try std.testing.expectEqual(@as(comptime_int, 4), numeric.value(shape_div(numeric._8, numeric._2)));
 
-    const div = shape_div(.{ numeric._4, numeric._5, numeric._6 }, numeric.C(40){});
-    try std.testing.expectEqual(@as(comptime_int, 1), numeric.value(div[0]));
-    try std.testing.expectEqual(@as(comptime_int, 1), numeric.value(div[1]));
-    try std.testing.expectEqual(@as(comptime_int, 3), numeric.value(div[2]));
+    const m: usize = 4;
+    const div_m = shape_div(.{ m, numeric._5, numeric._6 }, numeric.C(40){});
+    try std.testing.expectEqual(@as(usize, 1), div_m[0]);
+    try std.testing.expectEqual(@as(usize, 1), div_m[1]);
+    try std.testing.expectEqual(@as(usize, 3), div_m[2]);
 
+    const div_static = shape_div(.{ numeric._4, numeric._5, numeric._6 }, numeric.C(40){});
+    try std.testing.expectEqual(@as(comptime_int, 1), numeric.value(div_static[0]));
+    try std.testing.expectEqual(@as(comptime_int, 1), numeric.value(div_static[1]));
+    try std.testing.expectEqual(@as(comptime_int, 3), numeric.value(div_static[2]));
+}
+
+test "shape profile and divisibility basics" {
     const b: usize = 40;
     const runtime_div = shape_div(.{ numeric._4, numeric._5, numeric._6 }, b);
     try std.testing.expectEqual(@as(usize, 1), runtime_div[0]);
@@ -724,9 +740,7 @@ test "integer tuple division and compatibility basics" {
     try std.testing.expect(weakly_congruent(.{ numeric._2, numeric._3 }, .{ numeric._4, numeric._5 }));
     try std.testing.expect(!weakly_congruent(.{ numeric._2, .{ numeric._3 } }, .{ numeric._2, numeric._3 }));
     try std.testing.expect(compatible(.{ numeric._2, numeric._3 }, .{ numeric._2, numeric._3 }));
-}
 
-test "shape profile and divisibility basics" {
     const nested = .{ numeric._2, .{ numeric._3, numeric._4 } };
     try std.testing.expectEqual(@as(usize, 9), sum(nested));
 

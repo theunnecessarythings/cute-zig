@@ -46,9 +46,10 @@ pub fn Layout(comptime Shape: type, comptime Stride: type) type {
         }
 
         /// Map a 1D logical index to a physical offset.
-        /// Recursively unrolls hierarchical shapes and strides.
+        /// Scalar logical indices use canonical column-major domain ordering,
+        /// independent of this layout's physical stride ordering.
         pub fn map_1d(self: Self, logical_idx: usize) usize {
-            return crd2idx(idx2crd(logical_idx, self.shape, self.stride), self.shape, self.stride);
+            return crd2idx(logical_idx2crd(logical_idx, self.shape), self.shape, self.stride);
         }
 
         pub fn get_hier_coord(self: Self, idx: usize) Idx2CrdType(@TypeOf(idx), Shape, Stride) {
@@ -145,7 +146,31 @@ pub fn wrap_static_ints(val: anytype) @TypeOf(blk: {
 pub fn make_layout(shp: anytype, strd: anytype) Layout(@TypeOf(wrap_static_ints(shp)), @TypeOf(wrap_static_ints(strd))) {
     const wrapped_shp = wrap_static_ints(shp);
     const wrapped_strd = wrap_static_ints(strd);
+    assert_nonnegative_strides(wrapped_strd);
     return Layout(@TypeOf(wrapped_shp), @TypeOf(wrapped_strd)).init(wrapped_shp, wrapped_strd);
+}
+
+fn assert_nonnegative_strides(strd: anytype) void {
+    const T = @TypeOf(strd);
+    if (comptime is_scaled_basis(T)) {
+        assert_nonnegative_strides(strd.value);
+        return;
+    }
+    if (comptime int_tuple.is_tuple(T)) {
+        const R = comptime int_tuple.rank(T);
+        inline for (0..R) |i| {
+            assert_nonnegative_strides(strd[i]);
+        }
+        return;
+    }
+    if (comptime numeric.is_static_int(T)) {
+        comptime if (T.static_value < 0) {
+            @compileError("negative strides are not yet supported");
+        };
+    } else if (comptime numeric.is_integral(T)) {
+        const v: isize = @intCast(numeric.value(strd));
+        if (v < 0) @panic("negative strides are not yet supported");
+    }
 }
 
 pub fn make_layout_left(shp: anytype) @TypeOf(make_layout(shp, make_compact_col_major_stride(shp))) {
@@ -228,10 +253,16 @@ pub fn flatten_layout(l: anytype) @TypeOf(make_layout(
     int_tuple.flatten(l.shape),
     int_tuple.flatten(l.stride),
 )) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("flatten_layout does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     return make_layout(int_tuple.flatten(l.shape), int_tuple.flatten(l.stride));
 }
 
 pub fn coalesce(l: anytype) CoalescedLayoutType(@TypeOf(l)) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("coalesce does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     const flat_shape = int_tuple.flatten(l.shape);
     const flat_stride = int_tuple.flatten(l.stride);
     return make_layout(
@@ -241,6 +272,9 @@ pub fn coalesce(l: anytype) CoalescedLayoutType(@TypeOf(l)) {
 }
 
 pub fn filter_zeros(l: anytype) @TypeOf(make_layout(filter_zero_shape(l.stride, l.shape), l.stride)) {
+    comptime if (@hasDecl(@TypeOf(l), "transformed_layout")) {
+        @compileError("filter_zeros does not yet preserve transformed layout semantics for " ++ @TypeOf(l).transform_name);
+    };
     return make_layout(filter_zero_shape(l.stride, l.shape), l.stride);
 }
 
@@ -343,7 +377,8 @@ fn crd2idx_with_basis_coord(coord: anytype, shp: anytype, strd: anytype, basis_c
     }
     if (comptime int_tuple.is_tuple(ShapeT)) {
         if (comptime !int_tuple.is_tuple(CoordT)) {
-            return crd2idx_with_basis_coord(idx2crd(coord, shp, strd), shp, strd, basis_coord);
+            const logical_coord = logical_idx2crd(@as(usize, @intCast(numeric.value(coord))), shp);
+            return crd2idx_with_basis_coord(logical_coord, shp, strd, logical_coord);
         }
         comptime if (int_tuple.rank(CoordT) != int_tuple.rank(ShapeT)) @compileError("coordinate and shape ranks must match");
         var result: usize = 0;
@@ -355,6 +390,49 @@ fn crd2idx_with_basis_coord(coord: anytype, shp: anytype, strd: anytype, basis_c
     const c = @as(isize, @intCast(numeric.value(coord)));
     const d = @as(isize, @intCast(numeric.value(strd)));
     return @as(usize, @intCast(c * d));
+}
+
+fn logical_idx2crd(idx: usize, shp: anytype) LogicalCoordType(@TypeOf(shp)) {
+    const ShapeT = @TypeOf(shp);
+    if (comptime int_tuple.is_tuple(ShapeT)) {
+        const R = comptime int_tuple.rank(ShapeT);
+        var result: LogicalCoordType(ShapeT) = undefined;
+        var rest = idx;
+        inline for (0..R) |i| {
+            const sub = logical_idx2crd_with_remainder(rest, shp[i]);
+            result[i] = sub.coord;
+            rest = sub.remainder;
+        }
+        return result;
+    }
+    return idx % @as(usize, @intCast(numeric.value(shp)));
+}
+
+fn logical_idx2crd_with_remainder(idx: usize, shp: anytype) struct { coord: LogicalCoordType(@TypeOf(shp)), remainder: usize } {
+    const ShapeT = @TypeOf(shp);
+    if (comptime int_tuple.is_tuple(ShapeT)) {
+        const R = comptime int_tuple.rank(ShapeT);
+        var result: LogicalCoordType(ShapeT) = undefined;
+        var rest = idx;
+        inline for (0..R) |i| {
+            const sub = logical_idx2crd_with_remainder(rest, shp[i]);
+            result[i] = sub.coord;
+            rest = sub.remainder;
+        }
+        return .{ .coord = result, .remainder = rest };
+    }
+    const extent = @as(usize, @intCast(numeric.value(shp)));
+    return .{ .coord = idx % extent, .remainder = idx / extent };
+}
+
+fn LogicalCoordType(comptime ShapeT: type) type {
+    if (comptime int_tuple.is_tuple(ShapeT)) {
+        const R = comptime int_tuple.rank(ShapeT);
+        comptime var fields: [R]type = undefined;
+        inline for (0..R) |i| fields[i] = LogicalCoordType(child_type(ShapeT, i));
+        return std.meta.Tuple(&fields);
+    }
+    return usize;
 }
 
 fn ScaledBasis(comptime ValueT: type, comptime path: []const usize) type {
@@ -525,28 +603,34 @@ fn FlatCoordType(comptime ShapeT: type) type {
     return usize;
 }
 
-fn make_basis_like(shp: anytype) BasisLikeType(@TypeOf(shp), &.{}) {
-    return make_basis_like_at(shp, &.{});
+fn make_basis_like(shp: anytype) BasisLikeType(@TypeOf(shp), @TypeOf(numeric._1), &.{}) {
+    return make_basis_like_at(shp, numeric._1, &.{});
 }
 
-fn make_basis_like_at(shp: anytype, comptime path: []const usize) BasisLikeType(@TypeOf(shp), path) {
+fn make_basis_like_at(shp: anytype, running_stride: anytype, comptime path: []const usize) BasisLikeType(@TypeOf(shp), @TypeOf(running_stride), path) {
     if (comptime int_tuple.is_tuple(@TypeOf(shp))) {
         const R = comptime int_tuple.rank(@TypeOf(shp));
-        var result: BasisLikeType(@TypeOf(shp), path) = undefined;
-        inline for (0..R) |i| result[i] = make_basis_like_at(shp[i], append_path(path, i));
+        var result: BasisLikeType(@TypeOf(shp), @TypeOf(running_stride), path) = undefined;
+        inline for (0..R) |i| {
+            const mode_stride = if (i == 0) running_stride else numeric.mul(running_stride, int_tuple.static_product(int_tuple.take(0, i, shp)));
+            result[i] = make_basis_like_at(shp[i], mode_stride, append_path(path, i));
+        }
         return result;
     }
-    return scaled_basis(numeric._1, path);
+    return scaled_basis(running_stride, path);
 }
 
-fn BasisLikeType(comptime ShapeT: type, comptime path: []const usize) type {
+fn BasisLikeType(comptime ShapeT: type, comptime StrideT: type, comptime path: []const usize) type {
     if (comptime int_tuple.is_tuple(ShapeT)) {
         const R = comptime int_tuple.rank(ShapeT);
         comptime var fields: [R]type = undefined;
-        inline for (0..R) |i| fields[i] = BasisLikeType(child_type(ShapeT, i), append_path(path, i));
+        inline for (0..R) |i| {
+            const ModeStrideT = if (i == 0) StrideT else int_tuple.ArithmeticType(StrideT, int_tuple.StaticProductType(int_tuple.TakeType(0, i, ShapeT)), .mul);
+            fields[i] = BasisLikeType(child_type(ShapeT, i), ModeStrideT, append_path(path, i));
+        }
         return std.meta.Tuple(&fields);
     }
-    return ScaledBasis(@TypeOf(numeric._1), path);
+    return ScaledBasis(StrideT, path);
 }
 
 fn append_path(comptime path: []const usize, comptime value: usize) []const usize {
@@ -1871,6 +1955,9 @@ pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout(.{ m, n
 
 pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
     return struct {
+        pub const transformed_layout = true;
+        pub const transform_name = "composition";
+
         const Self = @This();
         lhs: LhsT,
         rhs: RhsT,
@@ -1958,8 +2045,8 @@ test "row major map_1d inverts compact layout" {
     );
 
     try std.testing.expectEqual(@as(usize, 0), l.map_1d(0));
-    try std.testing.expectEqual(@as(usize, 1), l.map_1d(1));
-    try std.testing.expectEqual(@as(usize, 4), l.map_1d(4)); // (1,0) in logical col-major -> physical 4 in row-major
+    try std.testing.expectEqual(@as(usize, 4), l.map_1d(1));
+    try std.testing.expectEqual(@as(usize, 1), l.map_1d(4)); // (0, 1) in col-major -> 1*1 = 1
 }
 
 test "logical_divide supports runtime shapes" {
@@ -1978,12 +2065,12 @@ test "identity layout supports map_1d and get_hier_coord" {
 
     const id = make_identity_layout(.{ n._2, n._4 });
 
-    try std.testing.expectEqual(@as(usize, 3), id.map(.{ n._0, n._3 }));
+    try std.testing.expectEqual(@as(usize, 6), id.map(.{ n._0, n._3 }));
     try std.testing.expectEqual(@as(usize, 3), id.map_1d(3));
 
     const c = id.get_hier_coord(3);
-    try std.testing.expectEqual(@as(usize, 0), c[0]);
-    try std.testing.expectEqual(@as(usize, 3), c[1]);
+    try std.testing.expectEqual(@as(usize, 1), c[0]);
+    try std.testing.expectEqual(@as(usize, 1), c[1]);
 }
 
 test "composed layout cosize reflects composed footprint" {
@@ -2046,4 +2133,22 @@ test "blocked_product supports runtime block shape" {
     const blocked = blocked_product(block, tiler);
 
     try std.testing.expectEqual(@as(usize, 8), blocked.stride[0][1]);
+}
+
+test "strided rank-one scalar indexing visits all logical elements" {
+    const l = make_layout(@as(usize, 4), @as(usize, 2));
+
+    try std.testing.expectEqual(@as(usize, 0), l.map_1d(0));
+    try std.testing.expectEqual(@as(usize, 2), l.map_1d(1));
+    try std.testing.expectEqual(@as(usize, 4), l.map_1d(2));
+    try std.testing.expectEqual(@as(usize, 6), l.map_1d(3));
+}
+
+test "mma lane scalar coordinate matches CuTe logical indexing" {
+    const tv = make_layout(
+        .{ .{ numeric._4, numeric._8 }, numeric._1 },
+        .{ .{ numeric._32, numeric._1 }, numeric._0 },
+    );
+
+    try std.testing.expectEqual(@as(usize, 32), tv.map(.{ @as(usize, 1), @as(usize, 0) }));
 }

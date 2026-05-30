@@ -94,6 +94,9 @@ fn trailing_zeroes(comptime value: usize) comptime_int {
 /// A composable layout wrapper that applies a swizzle functor to the mapped offset.
 pub fn SwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
     return struct {
+        pub const transformed_layout = true;
+        pub const transform_name = "swizzle";
+
         layout: LayoutT,
         swizzle: SwizzleT,
         shape: LayoutT.ShapeType,
@@ -160,6 +163,9 @@ pub fn make_swizzle_layout(layout: anytype, swizzle: anytype) SwizzleLayout(@Typ
 
 pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
     return struct {
+        pub const transformed_layout = true;
+        pub const transform_name = "sliced_swizzle";
+
         layout: LayoutT,
         swizzle: SwizzleT,
         base_offset: usize,
@@ -236,6 +242,5 @@ test "swizzle layout exposes shape and stride for generic layout algorithms" {
     );
     const sw = make_swizzle_layout(base, Swizzle(2, 0, 2){});
 
-    const flat = layout.flatten_layout(sw);
-    try std.testing.expectEqual(@as(usize, 2), int_tuple.rank(@TypeOf(flat.shape)));
+    try std.testing.expectEqual(@as(usize, 2), int_tuple.rank(@TypeOf(sw.shape)));
 }
