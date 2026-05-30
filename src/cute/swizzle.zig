@@ -96,11 +96,21 @@ pub fn SwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type {
     return struct {
         layout: LayoutT,
         swizzle: SwizzleT,
+        shape: LayoutT.ShapeType,
+        stride: LayoutT.StrideType,
+
+        pub const ShapeType = LayoutT.ShapeType;
+        pub const StrideType = LayoutT.StrideType;
 
         const Self = @This();
 
         pub fn init(l: LayoutT, s: SwizzleT) Self {
-            return .{ .layout = l, .swizzle = s };
+            return .{
+                .layout = l,
+                .swizzle = s,
+                .shape = l.shape,
+                .stride = l.stride,
+            };
         }
 
         pub fn map(self: Self, coord: anytype) usize {
@@ -137,11 +147,22 @@ pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type
         layout: LayoutT,
         swizzle: SwizzleT,
         base_offset: usize,
+        shape: LayoutT.ShapeType,
+        stride: LayoutT.StrideType,
+
+        pub const ShapeType = LayoutT.ShapeType;
+        pub const StrideType = LayoutT.StrideType;
 
         const Self = @This();
 
         pub fn init(l: LayoutT, s: SwizzleT, base: usize) Self {
-            return .{ .layout = l, .swizzle = s, .base_offset = base };
+            return .{
+                .layout = l,
+                .swizzle = s,
+                .base_offset = base,
+                .shape = l.shape,
+                .stride = l.stride,
+            };
         }
 
         pub fn map(self: Self, coord: anytype) usize {
@@ -171,4 +192,18 @@ pub fn SlicedSwizzleLayout(comptime LayoutT: type, comptime SwizzleT: type) type
 
 pub fn make_sliced_swizzle_layout(layout: anytype, swizzle: anytype, base_offset: usize) SlicedSwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)) {
     return SlicedSwizzleLayout(@TypeOf(layout), @TypeOf(swizzle)).init(layout, swizzle, base_offset);
+}
+
+test "swizzle layout exposes shape and stride for generic layout algorithms" {
+    const layout = @import("layout.zig");
+    const int_tuple = @import("int_tuple.zig");
+
+    const base = layout.make_layout(
+        .{ @as(usize, 4), @as(usize, 4) },
+        .{ @as(isize, 1), @as(isize, 4) },
+    );
+    const sw = make_swizzle_layout(base, Swizzle(2, 0, 2){});
+
+    const flat = layout.flatten_layout(sw);
+    try std.testing.expectEqual(@as(usize, 2), int_tuple.rank(@TypeOf(flat.shape)));
 }

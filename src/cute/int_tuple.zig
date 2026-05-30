@@ -534,9 +534,9 @@ fn ArithmeticType(comptime TA: type, comptime TB: type, comptime op: ArithmeticO
     return usize;
 }
 
-fn static_or_usize(comptime TA: type, comptime TB: type, comptime result: comptime_int) if (numeric.is_static_int(TA) and numeric.is_static_int(TB)) numeric.C(result) else usize {
+fn static_or_usize(comptime TA: type, comptime TB: type, result: anytype) DivType(TA, TB, .ceil_div) {
     if (comptime numeric.is_static_int(TA) and numeric.is_static_int(TB)) return .{};
-    return @as(usize, @intCast(result));
+    return @as(usize, @intCast(numeric.value(result)));
 }
 
 fn div_tuple_by_scalar(comptime op: DivOp, a: anytype, b: anytype) DivType(@TypeOf(a), @TypeOf(b), op) {
@@ -645,6 +645,14 @@ test "tuple append take flatten and arithmetic basics" {
     const tuple_sum = add(.{ numeric._1, numeric._2 }, .{ numeric._3, numeric._4 });
     try std.testing.expectEqual(@as(comptime_int, 4), numeric.value(tuple_sum[0]));
     try std.testing.expectEqual(@as(comptime_int, 6), numeric.value(tuple_sum[1]));
+}
+
+test "runtime int tuple division works" {
+    const x: usize = 5;
+    const y: usize = 2;
+
+    try std.testing.expectEqual(@as(usize, 3), ceil_div(x, y));
+    try std.testing.expectEqual(@as(usize, 6), round_up(x, y));
 }
 
 test "integer tuple division and compatibility basics" {

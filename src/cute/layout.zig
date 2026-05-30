@@ -398,6 +398,9 @@ fn BasisValuePathType(comptime CoordT: type, comptime path: []const usize) type 
 
 fn min_abs_stride(strd: anytype) usize {
     const T = @TypeOf(strd);
+    if (comptime is_scaled_basis(T)) {
+        return min_abs_stride(strd.value);
+    }
     if (comptime int_tuple.is_tuple(T)) {
         var min_s: usize = std.math.maxInt(usize);
         const R = comptime int_tuple.rank(T);
@@ -432,11 +435,12 @@ fn idx2crd_impl(idx: usize, shp: anytype, strd: anytype) struct { coord: Idx2Crd
         var p: [R]usize = undefined;
         inline for (0..R) |i| p[i] = i;
 
-        // Comptime sort if possible, otherwise runtime. 
+        // Comptime sort if possible, otherwise runtime.
         // We use a simple insertion sort for small R.
         for (0..R) |i| {
             for (i + 1..R) |j| {
-                if (strides[p[j]] < strides[p[i]]) {
+                // Tie-break equal strides by processing higher-indexed modes first (row-major-like).
+                if (strides[p[j]] < strides[p[i]] or (strides[p[j]] == strides[p[i]] and p[j] > p[i])) {
                     const tmp = p[i];
                     p[i] = p[j];
                     p[j] = tmp;
@@ -457,10 +461,11 @@ fn idx2crd_impl(idx: usize, shp: anytype, strd: anytype) struct { coord: Idx2Crd
         }
         return .{ .coord = result, .remainder = rest };
     }
+    const s = min_abs_stride(strd);
     const extent = @as(usize, @intCast(numeric.value(shp)));
-    return .{ .coord = idx % extent, .remainder = idx / extent };
+    const val = (idx / s) % extent;
+    return .{ .coord = val, .remainder = idx - val * s };
 }
-
 fn Idx2CrdType(comptime IdxT: type, comptime ShapeT: type, comptime StrideT: type) type {
     _ = IdxT;
     _ = StrideT;
@@ -1395,8 +1400,8 @@ fn logical_divide_rest_stride(l: anytype, tiler: anytype) LogicalDivideRestStrid
 }
 
 fn LogicalDivideRestStrideType(comptime LayoutT: type, comptime TilerT: type) type {
-    const rest_shape = static_ceil_div(@as(LayoutT.ShapeType, undefined), @as(TilerT.ShapeType, undefined));
-    if (comptime is_static_one(@TypeOf(rest_shape))) return @TypeOf(numeric._0);
+    const rest_shape_type = @TypeOf(static_ceil_div(@as(LayoutT.ShapeType, undefined), @as(TilerT.ShapeType, undefined)));
+    if (comptime is_static_one(rest_shape_type)) return @TypeOf(numeric._0);
     return @TypeOf(numeric.mul(@as(LayoutT.StrideType, undefined), @as(TilerT.ShapeType, undefined)));
 }
 
@@ -1825,10 +1830,8 @@ pub fn make_layout_1d(n: anytype) @TypeOf(make_layout(n, @as(isize, 1))) {
 }
 
 /// Create a Column-Major layout (M, N) -> (1, M)
-pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout(.{ m, n }, .{ @as(isize, 1), @as(isize, m) })) {
-    const shp = .{ m, n };
-    const strd = .{ @as(isize, 1), @as(isize, m) };
-    return make_layout(shp, strd);
+pub fn make_layout_col_major(m: anytype, n: anytype) @TypeOf(make_layout(.{ m, n }, .{ numeric._1, m })) {
+    return make_layout(.{ m, n }, .{ numeric._1, m });
 }
 
 pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
@@ -1851,7 +1854,10 @@ pub fn ComposedLayout(comptime LhsT: type, comptime RhsT: type) type {
             };
         }
         pub fn size(self: Self) usize { return self.rhs.size(); }
-        pub fn cosize(self: Self) usize { return self.lhs.cosize(); }
+        pub fn cosize(self: Self) usize {
+            if (self.rhs.size() == 0) return 0;
+            return self.lhs.map_1d(self.rhs.cosize() - 1) + 1;
+        }
         pub fn map(self: Self, coord: anytype) usize {
             return self.lhs.map(self.rhs.map(coord));
         }
@@ -1902,4 +1908,53 @@ test "row major map_1d inverts compact layout" {
     try std.testing.expectEqual(@as(usize, 0), l.map_1d(0));
     try std.testing.expectEqual(@as(usize, 1), l.map_1d(1));
     try std.testing.expectEqual(@as(usize, 4), l.map_1d(4)); // (1,0) in logical col-major -> physical 4 in row-major
+}
+
+test "logical_divide supports runtime shapes" {
+    const n: usize = 13;
+    const tile_n: usize = 4;
+
+    const layout = make_layout(n, @as(usize, 1));
+    const tile = make_layout(tile_n, @as(usize, 1));
+    const divided = logical_divide(layout, tile);
+
+    try std.testing.expectEqual(@as(usize, 4), divided.shape[1]);
+}
+
+test "identity layout supports map_1d and get_hier_coord" {
+    const n = numeric;
+
+    const id = make_identity_layout(.{ n._2, n._4 });
+
+    try std.testing.expectEqual(@as(usize, 3), id.map(.{ n._0, n._3 }));
+    try std.testing.expectEqual(@as(usize, 3), id.map_1d(3));
+
+    const c = id.get_hier_coord(3);
+    try std.testing.expectEqual(@as(usize, 0), c[0]);
+    try std.testing.expectEqual(@as(usize, 3), c[1]);
+}
+
+test "composed layout cosize reflects composed footprint" {
+    const lhs = make_layout(@as(usize, 100), @as(usize, 1));
+    const rhs = make_layout(@as(usize, 2), @as(usize, 10));
+    const c = composition(lhs, rhs);
+
+    try std.testing.expectEqual(@as(usize, 0), c.map(0));
+    try std.testing.expectEqual(@as(usize, 10), c.map(1));
+    try std.testing.expectEqual(@as(usize, 11), c.cosize());
+}
+
+test "make_layout_col_major handles runtime and static values safely" {
+    const n = numeric;
+    const m: usize = 128;
+    const k: usize = 64;
+
+    const l1 = make_layout_col_major(m, k);
+    try std.testing.expectEqual(m, l1.shape[0]);
+    try std.testing.expectEqual(@as(usize, 1), @as(usize, @intCast(numeric.value(l1.stride[0]))));
+    try std.testing.expectEqual(m, @as(usize, @intCast(numeric.value(l1.stride[1]))));
+
+    const l2 = make_layout_col_major(n._32, n._64);
+    try std.testing.expectEqual(@as(usize, 32), n.value(l2.shape[0]));
+    try std.testing.expectEqual(@as(usize, 32), @as(usize, @intCast(n.value(l2.stride[1]))));
 }
