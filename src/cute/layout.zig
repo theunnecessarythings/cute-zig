@@ -187,12 +187,27 @@ pub fn make_compact_coordinate_encoding_layout(shp: anytype) @TypeOf(make_layout
     return make_layout(shp, make_basis_like(shp));
 }
 
+fn has_nested_shape(comptime T: type) bool {
+    if (comptime !int_tuple.is_tuple(T)) return false;
+    const R = comptime int_tuple.rank(T);
+    inline for (0..R) |i| {
+        if (comptime int_tuple.is_tuple(child_type(T, i))) return true;
+    }
+    return false;
+}
+
 pub fn make_layout_like(l: anytype) @TypeOf(make_layout(l.shape, compact_order_like(l.shape, l.stride))) {
     reject_transformed_operand("make_layout_like", l);
+    comptime if (has_nested_shape(@TypeOf(l.shape))) {
+        @compileError("make_layout_like does not yet support hierarchical shape profiles");
+    };
     return make_layout(l.shape, compact_order_like(l.shape, l.stride));
 }
 
 pub fn make_ordered_layout(shp: anytype, order: anytype) @TypeOf(make_layout(shp, compact_order(shp, order))) {
+    comptime if (has_nested_shape(@TypeOf(shp))) {
+        @compileError("make_ordered_layout does not yet support hierarchical shape profiles");
+    };
     return make_layout(shp, compact_order(shp, order));
 }
 
@@ -1718,7 +1733,12 @@ fn CompactOrderType(comptime ShapeT: type, comptime OrderT: type) type {
         const R = comptime int_tuple.rank(ShapeT);
         comptime var fields: [R]type = undefined;
         inline for (0..R) |i| {
-            fields[i] = if (can_static_order_stride(i, ShapeT, OrderT)) numeric.C(compact_order_stride_value(i, ShapeT, OrderT)) else usize;
+            fields[i] = if (is_static_one(child_type(ShapeT, i)))
+                @TypeOf(numeric._0)
+            else if (can_static_order_stride(i, ShapeT, OrderT))
+                numeric.C(compact_order_stride_value(i, ShapeT, OrderT))
+            else
+                usize;
         }
         return std.meta.Tuple(&fields);
     }
@@ -2278,6 +2298,18 @@ test "nested compact left recurses in left-major order" {
     try std.testing.expectEqual(@as(comptime_int, 1), n.value(l.stride[0][0]));
     try std.testing.expectEqual(@as(comptime_int, 2), n.value(l.stride[0][1]));
     try std.testing.expectEqual(@as(comptime_int, 6), n.value(l.stride[1]));
+}
+
+test "ordered compact layout uses zero stride for static unit modes" {
+    const n = numeric;
+
+    const l = make_ordered_layout(
+        .{ n._4, n._1 },
+        .{ n._0, n._1 },
+    );
+
+    try std.testing.expectEqual(@as(comptime_int, 1), n.value(l.stride[0]));
+    try std.testing.expectEqual(@as(comptime_int, 0), n.value(l.stride[1]));
 }
 
 test "coshape of empty layout is zero" {

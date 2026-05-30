@@ -54,6 +54,9 @@ pub fn Tensor(comptime PtrType: type, comptime LayoutType: type) type {
         // Slicing and viewing will be built on top of layout slicing,
         // which processes `underscore._` placeholders.
         pub fn slice(self: Self, coord: anytype) @TypeOf(blk: {
+            comptime if (@hasDecl(LayoutType, "transform_name") and std.mem.eql(u8, LayoutType.transform_name, "composition")) {
+                @compileError("slicing reshaped/composed tensors requires composition-preserving slice support");
+            };
             const result = self.layout.slice_and_offset(coord);
             break :blk make_tensor(self.ptr + result.offset, result.layout);
         }) {
