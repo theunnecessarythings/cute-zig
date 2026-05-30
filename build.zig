@@ -164,6 +164,8 @@ pub fn build(b: *std.Build) void {
     const ptx_sm75_mov = addPtxasCheck(b, cute_mod, "tests/device/sm75_movmatrix_check.zig", "sm_75");
     const ptx_sm75_ld = addPtxasCheck(b, cute_mod, "tests/device/sm75_ldmatrix_check.zig", "sm_75");
     const ptx_sm90_st = addPtxasCheck(b, cute_mod, "tests/device/sm90_stmatrix_check.zig", "sm_90");
+    const ptx_sm80_async = addPtxasCheck(b, cute_mod, "tests/device/sm80_cp_async_check.zig", "sm_80");
+    const ptx_sm80_sgemm = addPtxasCheck(b, cute_mod, "examples/main_device.zig", "sm_80");
 
     const test_step = b.step("test", "Run Zig parity and module tests");
     test_step.dependOn(&run_parity_tests.step);
@@ -175,6 +177,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&ptx_sm75_mov.step);
     test_step.dependOn(&ptx_sm75_ld.step);
     test_step.dependOn(&ptx_sm90_st.step);
+    test_step.dependOn(&ptx_sm80_async.step);
+    test_step.dependOn(&ptx_sm80_sgemm.step);
 
     const compile_fail_cases = [_]struct {
         source: []const u8,

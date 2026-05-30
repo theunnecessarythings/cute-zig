@@ -88,13 +88,20 @@ pub const util = struct {
         );
     }
     pub inline fn cp_async_fence() void {
-        asm volatile ("cp.async.fence;" ::: .{ .memory = true });
+        asm volatile ("cp.async.commit_group;" ::: .{ .memory = true });
     }
     pub inline fn cp_async_wait_all() void {
         asm volatile ("cp.async.wait_all;" ::: .{ .memory = true });
     }
     pub inline fn cp_async_wait_group(comptime n: u32) void {
         asm volatile (std.fmt.comptimePrint("cp.async.wait_group {d};", .{n}) ::: .{ .memory = true });
+    }
+};
+
+/// Hand-written synchronization operations.
+pub const sync = struct {
+    pub inline fn syncthreads() void {
+        asm volatile ("bar.sync 0;" ::: .{ .memory = true });
     }
 };
 
